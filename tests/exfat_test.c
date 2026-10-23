@@ -20,6 +20,7 @@ static int img_read(void *dev, oa_u32 lba, void *buf)
 }
 
 static struct oa_exfat vol;
+static oa_u8 sector_buf[OA_EXFAT_MAXSECT];
 
 static void name83(const char fcb[11], char *out)
 {
@@ -129,7 +130,7 @@ int main(int argc, char **argv)
     if (argc < 2) { puts("exFAT name tests passed"); return 0; }
     image = fopen(argv[1], "rb");
     assert(image);
-    r = oa_exfat_mount(&vol, img_read, NULL, start, &oa_exfat_cp850);
+    r = oa_exfat_mount(&vol, img_read, NULL, start, &oa_exfat_cp850, sector_buf);
     if (r) { fprintf(stderr, "mount: %d\n", r); return 1; }
     if (argc > 3) { cat(argv[3]); return 0; }
     assert(!oa_exfat_free(&vol, &free_clusters));

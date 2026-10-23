@@ -96,7 +96,7 @@ void oa_exfat_rootdir(const struct oa_exfat *v, struct oa_exfat_file *f)
     f->first = v->root; f->root = 1;
 }
 
-int oa_exfat_mount(struct oa_exfat *v, oa_exfat_read_fn read, void *dev, oa_u32 start, const struct oa_exfat_cp *cp)
+int oa_exfat_mount(struct oa_exfat *v, oa_exfat_read_fn read, void *dev, oa_u32 start, const struct oa_exfat_cp *cp, oa_u8 *buf)
 {
     const oa_u8 *b;
     struct oa_exfat_file root;
@@ -104,7 +104,7 @@ int oa_exfat_mount(struct oa_exfat *v, oa_exfat_read_fn read, void *dev, oa_u32 
     unsigned i;
     int r;
     memset(v, 0, sizeof(*v));
-    v->read = read; v->dev = dev; v->start = start; v->cp = cp; v->buf_lba = NOBUF;
+    v->read = read; v->dev = dev; v->start = start; v->cp = cp; v->buf = buf; v->buf_lba = NOBUF;
     if (read(dev, start, v->buf)) return OA_EXFAT_EIO;
     b = v->buf;
     if (!oa_exfat_probe(b)) return OA_EXFAT_EBAD;

@@ -50,7 +50,9 @@ struct oa_exfat {
     oa_u16 label[11];
     const struct oa_exfat_cp *cp;
     oa_u32 buf_lba;             /* sector in buf, or 0xFFFFFFFF */
-    oa_u8 buf[OA_EXFAT_MAXSECT];
+    oa_u8 *buf;                 /* OA_EXFAT_MAXSECT bytes; volumes may share
+                                   one when they set buf_lba to 0xFFFFFFFF
+                                   after another one used it */
 };
 
 /* A file or directory: its cluster chain and the cluster last walked to. */
@@ -71,7 +73,7 @@ struct oa_exfat_ent {
 };
 
 int oa_exfat_probe(const oa_u8 OA_FAR *boot);
-int oa_exfat_mount(struct oa_exfat *, oa_exfat_read_fn, void *dev, oa_u32 start, const struct oa_exfat_cp *);
+int oa_exfat_mount(struct oa_exfat *, oa_exfat_read_fn, void *dev, oa_u32 start, const struct oa_exfat_cp *, oa_u8 *buf);
 void oa_exfat_rootdir(const struct oa_exfat *, struct oa_exfat_file *);
 int oa_exfat_dir_next(struct oa_exfat *, struct oa_exfat_file *dir, oa_u32 *pos, struct oa_exfat_ent *);
 int oa_exfat_read(struct oa_exfat *, struct oa_exfat_file *, oa_u32 off, void OA_FAR *buf, oa_u16 len, oa_u16 *done);
