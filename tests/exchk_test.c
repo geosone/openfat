@@ -1,7 +1,7 @@
 /* The exFAT check on the host, as EXCHK does it under DOS:
-   exchk_test IMAGE [LBA [WINDOW]]
-   WINDOW: clusters per pass (default all); exit 0 clean, 1 errors, 2 not
-   exFAT or unreadable. */
+   exchk_test IMAGE [LBA [WINDOW [F]]]
+   WINDOW: clusters per pass (0: all); F: repair (EXCHK /F); exit 0 clean,
+   1 errors, 2 not exFAT or unreadable. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,10 +17,18 @@ static int img_read(void *dev, oa_u32 lba, void *buf)
     return fread(buf, 512, 1, image) == 1 ? 0 : -1;
 }
 
+static int img_write(void *dev, oa_u32 lba, const void *buf)
+{
+    (void)dev;
+    if (fseek(image, (long)lba * 512, SEEK_SET)) return -1;
+    return fwrite(buf, 512, 1, image) == 1 ? 0 : -1;
+}
+
 static void msg(void *ctx, int level, const char *text)
 {
     (void)ctx;
-    printf("%s%s\n", level == OA_EXCHK_ERROR ? "ERROR: " : level == OA_EXCHK_WARN ? "WARNING: " : "", text);
+    printf("%s%s\n", level == OA_EXCHK_ERROR ? "ERROR: " : level == OA_EXCHK_WARN ? "WARNING: " :
+           level == OA_EXCHK_FIXED ? "  FIXED: " : "", text);
 }
 
 static int mark(void *ctx, oa_u32 bit)
@@ -38,13 +46,15 @@ int main(int argc, char **argv)
 {
     struct oa_exchk c;
     int r;
-    if (argc < 2) { fputs("exchk_test IMAGE [LBA [WINDOW]]\n", stderr); return 2; }
-    image = fopen(argv[1], "rb");
+    int fix = argc > 4 && argv[4][0] == 'F';
+    if (argc < 2) { fputs("exchk_test IMAGE [LBA [WINDOW [F]]]\n", stderr); return 2; }
+    image = fopen(argv[1], fix ? "r+b" : "rb");
     if (!image) { perror(argv[1]); return 2; }
     memset(&c, 0, sizeof(c));
     c.read = img_read; c.cp = &oa_exfat_cp850; c.msg = msg; c.mark = mark; c.clear = clear;
     c.start = argc > 2 ? strtoul(argv[2], NULL, 0) : 0;
-    window = argc > 3 ? strtoul(argv[3], NULL, 0) : 1UL << 28;
+    window = argc > 3 && strtoul(argv[3], NULL, 0) ? strtoul(argv[3], NULL, 0) : 1UL << 28;
+    if (fix) c.write = img_write;
     c.window = window;
     bits = malloc(window / 8 + 1);
     r = oa_exchk_run(&c);
@@ -52,8 +62,8 @@ int main(int argc, char **argv)
     printf("%lu files, %lu directories; %lu clusters of %lu bytes, %lu used, %lu free\n",
            (unsigned long)c.files, (unsigned long)c.dirs, (unsigned long)c.clusters,
            (unsigned long)c.cluster_size, (unsigned long)c.used, (unsigned long)c.free);
-    printf("%lu errors, %lu warnings; lost %lu, unmarked %lu, cross-linked %lu, bad %lu\n",
-           (unsigned long)c.errors, (unsigned long)c.warnings, (unsigned long)c.lost,
+    printf("%lu errors, %lu warnings, %lu fixed; lost %lu, unmarked %lu, cross-linked %lu, bad %lu\n",
+           (unsigned long)c.errors, (unsigned long)c.warnings, (unsigned long)c.fixed, (unsigned long)c.lost,
            (unsigned long)c.unmarked, (unsigned long)c.cross, (unsigned long)c.bad);
     return c.errors ? 1 : 0;
 }
