@@ -101,7 +101,7 @@ int oa_exfat_mount(struct oa_exfat *v, oa_exfat_read_fn read, void *dev, oa_u32 
     const oa_u8 *b;
     struct oa_exfat_file root;
     oa_u32 pos, len;
-    unsigned i;
+    unsigned i, active;
     int r;
     memset(v, 0, sizeof(*v));
     v->read = read; v->dev = dev; v->start = start; v->cp = cp; v->buf = buf; v->buf_lba = NOBUF;
@@ -116,7 +116,9 @@ int oa_exfat_mount(struct oa_exfat *v, oa_exfat_read_fn read, void *dev, oa_u32 
     v->fat = rd32(b+80); v->heap = rd32(b+88); v->clusters = rd32(b+92);
     v->root = rd32(b+96); v->serial = rd32(b+100); v->flags = rd16(b+106);
     if (b[110] != 1 && b[110] != 2) return OA_EXFAT_EBAD;
-    if (b[110] == 2 && (v->flags & 1)) v->fat += rd32(b+84);
+    /* TexFAT: two FATs and bitmaps, ActiveFat names the ones in use */
+    active = b[110] == 2 ? v->flags & 1 : 0;
+    if (active) v->fat += rd32(b+84);
     if (v->fat < 24 || v->heap < v->fat || !v->clusters || v->clusters > 0xFFFFFFF5UL ||
         (oa_u32)(v->heap + (v->clusters << v->cshift)) > len ||
         rd32(b+84) < ((v->clusters + 2) >> (v->sshift - 2)) ||
@@ -128,7 +130,7 @@ int oa_exfat_mount(struct oa_exfat *v, oa_exfat_read_fn read, void *dev, oa_u32 
         if (r == OA_EXFAT_END) break;
         if (r) return r;
         if (!b[0]) break;
-        if (b[0] == 0x81 && !(b[1] & 1)) v->bitmap = rd32(b+20);
+        if (b[0] == 0x81 && (b[1] & 1) == active) v->bitmap = rd32(b+20);
         if (b[0] == 0x83) {
             v->label_len = b[1] > 11 ? 11 : b[1];
             for (i = 0; i < v->label_len; ++i) v->label[i] = rd16(b + 2 + 2*i);

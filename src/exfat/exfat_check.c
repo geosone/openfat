@@ -3,6 +3,9 @@
    chains) are reported and repaired in the first pass; errors about single
    clusters (lost, unmarked, cross-linked) in the pass whose window holds
    the cluster.  Repairs are written at once, so the later passes see them.
+   TexFAT (two FATs and allocation bitmaps): the FATs are compared along
+   every chain, a valid entry wins over a broken one; the second bitmap is
+   compared with the active one.
    Not repaired: cross-linked clusters, invalid characters in names, a
    damaged allocation bitmap or up-case table entry. */
 #include <stdio.h>
@@ -22,14 +25,15 @@ struct cache { oa_u32 lba; oa_u8 b[MAXS]; };
 /* a file or directory: its chain and the cluster last walked to */
 struct chain { oa_u32 first, size, idx, clu; int nofat, root; };
 
-static struct cache cdir, cfat;
+static struct cache cdir, cfat, cfat2, cbm2;  /* cfat2, cbm2: TexFAT's other copies */
 static oa_u8 boot[MAXS], other[MAXS];
 static struct oa_exchk *C;
-static oa_u32 fat, heap, nclu, root;
+static oa_u32 fat, fat2, heap, nclu, root;  /* fat: the active FAT, fat2: the other */
+static unsigned nfats, active;
 static unsigned sshift, cshift, ssize;
 static oa_u32 lo, hi;                   /* the window: clusters lo+2 .. hi+1 */
 static int first_pass;
-static struct chain bitmap, upcase;
+static struct chain bitmap, bitmap2, upcase;  /* bitmap2: TexFAT's other one */
 static oa_u16 pairs[2 * MAXPAIRS];      /* upcase table: character, upper case */
 static unsigned npairs;
 static int have_upcase;
@@ -37,6 +41,7 @@ static char path[300];
 static unsigned plen;
 static char text[400];
 static unsigned nlost, nunmarked, ncross;   /* reported */
+static oa_u32 bmdiff;                   /* clusters the two bitmaps differ in */
 
 static oa_u16 rd16(const oa_u8 *p) { return (oa_u16)(p[0] | p[1] << 8); }
 static oa_u32 rd32(const oa_u8 *p) { return rd16(p) | (oa_u32)rd16(p+2) << 16; }
@@ -88,11 +93,26 @@ static int fat_get(oa_u32 clu, oa_u32 *next)
     return 0;
 }
 
+static int fat2_get(oa_u32 clu, oa_u32 *next)
+{
+    const oa_u8 *s = sec(&cfat2, fat2 + (clu >> (sshift - 2)));
+    if (!s) return -1;
+    *next = rd32(s + ((unsigned)(clu << 2) & (ssize - 1)));
+    return 0;
+}
+
+static int fat_put(struct cache *c, oa_u32 base, oa_u32 clu, oa_u32 v)
+{
+    if (!sec(c, base + (clu >> (sshift - 2)))) return -1;
+    wr32(c->b + ((unsigned)(clu << 2) & (ssize - 1)), v);
+    return put(c);
+}
+
+/* both FATs */
 static int fat_set(oa_u32 clu, oa_u32 v)
 {
-    if (!sec(&cfat, fat + (clu >> (sshift - 2)))) return -1;
-    wr32(cfat.b + ((unsigned)(clu << 2) & (ssize - 1)), v);
-    return put(&cfat);
+    if (fat_put(&cfat, fat, clu, v)) return -1;
+    return nfats == 2 ? fat_put(&cfat2, fat2, clu, v) : 0;
 }
 
 static int valid(oa_u32 clu) { return clu >= 2 && clu < nclu + 2; }
@@ -168,7 +188,7 @@ static void use(oa_u32 clu)
    fewer than count.  A chain that runs on is ended (fix). */
 static oa_u32 use_chain(oa_u32 first, int nofat, oa_u32 count, int fix, int *broken)
 {
-    oa_u32 c = first, n = 0, next, a, b;
+    oa_u32 c = first, n = 0, next, next2, pick, a, b;
     const char *why = 0;
     *broken = 0;
     if (!valid(first)) {
@@ -190,6 +210,16 @@ static oa_u32 use_chain(oa_u32 first, int nofat, oa_u32 count, int fix, int *bro
     for (;;) {
         use(c); ++n;
         if (fat_get(c, &next)) return n;
+        if (nfats == 2 && !fat2_get(c, &next2) && next2 != next) {
+            /* TexFAT: the valid entry wins, or the one that goes on to the size */
+            pick = next;
+            if (next != EOC && (!valid(next) || next == BADCLU) && (next2 == EOC || valid(next2))) pick = next2;
+            else if (next == EOC && count && n < count && valid(next2)) pick = next2;
+            if (first_pass) report(OA_EXCHK_ERROR, "%s: the FATs differ at cluster %lu", where(), (unsigned long)c);
+            if (fixing() && !fat_set(c, pick))
+                report(OA_EXCHK_FIXED, "entry of the %s FAT written to both", pick == next ? "active" : "other");
+            next = pick;
+        }
         if (next == EOC) break;
         if (count && n >= count) {
             if (first_pass) report(OA_EXCHK_ERROR, "%s: cluster chain is longer than the size", where());
@@ -281,23 +311,30 @@ static void system_entries(void)
     struct chain r;
     const oa_u8 *e;
     oa_u32 pos, upsum = 0;
-    unsigned nbitmap = 0, nupcase = 0;
+    unsigned nbitmap = 0, nupcase = 0, nbm[2] = { 0, 0 };
     const char *no = C->write ? " (not repaired)" : "";
     memset(&r, 0, sizeof(r));
     r.first = root; r.root = 1;
     memset(&bitmap, 0, sizeof(bitmap));
+    memset(&bitmap2, 0, sizeof(bitmap2));
     memset(&upcase, 0, sizeof(upcase));
     for (pos = 0; (e = entry(&r, pos)) != 0 && e[0]; pos += 32) {
-        if (e[0] == 0x81 && !(e[1] & 1)) {
-            ++nbitmap;
-            bitmap.first = rd32(e+20); bitmap.size = rd32(e+24);
+        if (e[0] == 0x81) {
+            struct chain *b = (e[1] & 1) == active ? &bitmap : &bitmap2;
+            ++nbitmap; ++nbm[e[1] & 1];
+            b->first = rd32(e+20); b->size = rd32(e+24);
         } else if (e[0] == 0x82) {
             ++nupcase;
             upsum = rd32(e+4); upcase.first = rd32(e+20); upcase.size = rd32(e+24);
         }
     }
-    if (nbitmap != 1) report(OA_EXCHK_ERROR, "%u allocation bitmaps in the root directory%s", nbitmap, no);
+    if (nbitmap != nfats || nbm[0] != 1 || nbm[1] != nfats - 1) {
+        report(OA_EXCHK_ERROR, "%u allocation bitmaps for %u FATs in the root directory%s", nbitmap, nfats, no);
+        if (!nbm[active]) nbitmap = 0;
+    }
+    if (nfats == 2 && (bitmap2.size < (nclu + 7) / 8 || !valid(bitmap2.first))) bitmap2.first = 0;
     if (nupcase != 1) report(OA_EXCHK_ERROR, "%u up-case tables in the root directory%s", nupcase, no);
+    if (!nbitmap) bitmap.first = 0;
     if (nbitmap && bitmap.size < (nclu + 7) / 8) {
         report(OA_EXCHK_ERROR, "Allocation bitmap is too small%s", no);
         bitmap.first = 0;
@@ -489,9 +526,9 @@ static void range(int lost, oa_u32 a, oa_u32 b)
 
 static void compare(void)
 {
-    oa_u32 i, lba, next, start = 0, cur = NOBUF;
+    oa_u32 i, lba, next, start = 0, cur = NOBUF, cur2 = NOBUF;
     oa_u8 *s = 0, *p, m;
-    int bit, inuse, kind = 0, k, dirty = 0;     /* kind of the open range: 1 lost, 2 unmarked */
+    int bit, inuse, kind = 0, k, dirty = 0, dirty2 = 0;     /* kind of the open range: 1 lost, 2 unmarked */
     if (!bitmap.first) return;
     for (i = lo; i <= hi; ++i) {
         k = 0;
@@ -518,6 +555,19 @@ static void compare(void)
                 if (C->write) { *p |= m; dirty = 1; bit = 1; }
             }
             if (bit) ++C->used; else ++C->free;
+            if (bitmap2.first) {                /* TexFAT: the other bitmap the same */
+                if ((i >> 3) / ssize != cur2) {
+                    if (dirty2 && put(&cbm2)) return;
+                    dirty2 = 0;
+                    if ((lba = file_lba(&bitmap2, i >> 3)) == NOBUF || !sec(&cbm2, lba)) bitmap2.first = 0;
+                    cur2 = (i >> 3) / ssize;
+                }
+                p = cbm2.b + ((unsigned)(i >> 3) & (ssize - 1));
+                if (bitmap2.first && ((*p & m) != 0) != bit) {
+                    ++bmdiff;
+                    if (C->write) { *p ^= m; dirty2 = 1; }
+                }
+            }
         }
         if (k != kind) {
             if (kind) range(kind == 1, start + 2, i + 1);
@@ -525,6 +575,7 @@ static void compare(void)
         }
     }
     if (dirty) put(&cdir);
+    if (dirty2) put(&cbm2);
 }
 
 /* ---- the boot region ---- */
@@ -594,7 +645,11 @@ static int check_boot(void)
         return OA_EXFAT_EBAD;
     }
     if (!valid(root)) { report(OA_EXCHK_ERROR, "Root directory starts outside the volume"); return OA_EXFAT_EBAD; }
-    if (boot[110] == 2 && (C->flags & 1)) fat += rd32(boot+84);
+    nfats = boot[110];
+    active = nfats == 2 ? C->flags & 1 : 0;
+    fat2 = fat + (active ? 0 : rd32(boot+84));
+    if (active) fat += rd32(boot+84);
+    if (nfats == 1 && (C->flags & 1)) report(OA_EXCHK_WARN, "ActiveFat names a second FAT, but there is one FAT");
     if (backup_ok) backup_ok = region_ok(12, &dummy) == 1;
     if (!main_ok) {
         report(OA_EXCHK_ERROR, "Main boot sector is not exFAT; using the backup");
@@ -635,11 +690,13 @@ int oa_exchk_run(struct oa_exchk *c)
     C = c;
     c->errors = c->warnings = c->fixed = c->used = c->free = c->lost = c->unmarked = c->cross = c->bad = 0;
     c->files = c->dirs = 0;
-    cdir.lba = cfat.lba = NOBUF;
+    cdir.lba = cfat.lba = cfat2.lba = cbm2.lba = NOBUF;
+    bmdiff = 0;
     plen = 0; path[0] = 0; nlost = nunmarked = ncross = 0; have_upcase = 0;
     first_pass = 1;
     if ((rc = check_boot()) != OA_EXFAT_OK) return rc;
-    if (!fat_get(0, &v0) && !fat_get(1, &v1) && (v0 != 0xFFFFFFF8UL || v1 != EOC)) {
+    if ((!fat_get(0, &v0) && !fat_get(1, &v1) && (v0 != 0xFFFFFFF8UL || v1 != EOC)) ||
+        (nfats == 2 && !fat2_get(0, &v0) && !fat2_get(1, &v1) && (v0 != 0xFFFFFFF8UL || v1 != EOC))) {
         report(OA_EXCHK_WARN, "FAT entries 0 and 1 are %08lX %08lX", (unsigned long)v0, (unsigned long)v1);
         if (c->write && !fat_set(0, 0xFFFFFFF8UL) && !fat_set(1, EOC)) report(OA_EXCHK_FIXED, "FAT entries 0 and 1 corrected");
     }
@@ -649,6 +706,7 @@ int oa_exchk_run(struct oa_exchk *c)
         hi = nclu - lo > c->window ? lo + c->window : nclu;
         c->clear(c->ctx);
         if (bitmap.first) use_chain(bitmap.first, 0, clusters_of(0, bitmap.size), 0, &broken);
+        if (bitmap2.first) use_chain(bitmap2.first, 0, clusters_of(0, bitmap2.size), 0, &broken);
         if (upcase.first) use_chain(upcase.first, 0, clusters_of(0, upcase.size), 0, &broken);
         memset(&r, 0, sizeof(r));
         r.first = root; r.root = 1;
@@ -662,6 +720,10 @@ int oa_exchk_run(struct oa_exchk *c)
     if (c->write && (c->lost || c->unmarked))
         report(OA_EXCHK_FIXED, "allocation bitmap corrected: %lu lost clusters freed, %lu clusters marked as used",
                (unsigned long)c->lost, (unsigned long)c->unmarked);
+    if (bmdiff) {
+        report(OA_EXCHK_ERROR, "The second allocation bitmap differs in %lu clusters", (unsigned long)bmdiff);
+        if (c->write) report(OA_EXCHK_FIXED, "second allocation bitmap written from the active one");
+    }
     if (c->write && c->cross)
         report(OA_EXCHK_INFO, "Cross-linked clusters are not repaired: copy the files named and delete the originals");
     /* a repaired volume is clean: VolumeDirty off, PercentInUse new; both

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Damages an exFAT image made by tests/exfat_image.sh for the EXCHK tests.
    exchk_corrupt.py IMAGE CASE
-CASE: bitmap-clear bitmap-set checksum hash cross chain boot dirty vdl"""
+CASE: bitmap-clear bitmap-set checksum hash cross chain boot dirty vdl;
+TexFAT images (tests/exfat_texfat.py): fat-active (frag.bin's chain broken
+in the active FAT), fat-other (an entry changed in the other FAT), bitmap2
+(a bit of the other allocation bitmap)"""
 import struct
 import sys
 
@@ -24,6 +27,10 @@ sshift, cshift = boot[108], boot[109]
 ss = 1 << sshift
 cs = ss << cshift
 fat_off = struct.unpack_from('<I', boot, 80)[0] * ss
+fat_len = struct.unpack_from('<I', boot, 84)[0] * ss
+active = boot[106] & 1 if boot[110] == 2 else 0
+other_off = fat_off + (0 if active else fat_len)
+fat_off += fat_len * active
 heap = struct.unpack_from('<I', boot, 88)[0] * ss
 nclu = struct.unpack_from('<I', boot, 92)[0]
 root = struct.unpack_from('<I', boot, 96)[0]
@@ -58,14 +65,14 @@ def root_entries():
 def entry_sets():
     """name -> (offsets of the set, bitmap cluster) in the root directory"""
     offs = list(root_entries())
-    sets, bitmap = {}, None
+    sets, bitmap = {}, {}
     i = 0
     while i < len(offs):
         e = rd(offs[i], 32)
         if e[0] == 0:
             break
         if e[0] == 0x81:
-            bitmap = struct.unpack_from('<I', e, 20)[0]
+            bitmap[e[1] & 1] = struct.unpack_from('<I', e, 20)[0]
         if e[0] == 0x85:
             n = e[1]
             set_offs = offs[i:i + n + 1]
@@ -91,7 +98,8 @@ def stream(set_offs):
     return bytearray(rd(set_offs[1], 32))
 
 
-sets, bitmap = entry_sets()
+sets, bitmaps = entry_sets()
+bitmap = bitmaps[active]
 
 
 def first_cluster(name):
@@ -138,6 +146,16 @@ elif case == 'vdl':
     struct.pack_into('<Q', s, 8, size + 1)
     wr(sets['sparse.dat'][1], bytes(s))
     fix_checksum(sets['sparse.dat'])
+elif case == 'fat-active':
+    c = chain(first_cluster('frag.bin'))
+    set_fat(c[len(c) // 2], 0)
+elif case == 'fat-other':
+    c = chain(first_cluster('frag.bin'))
+    wr(other_off + 4 * c[3], struct.pack('<I', 0xFFFFFFFF))
+elif case == 'bitmap2':
+    c = nclu + 1
+    off = clu_off(bitmaps[1 - active]) + (c - 2) // 8
+    wr(off, bytes([rd(off, 1)[0] ^ 1 << ((c - 2) % 8)]))
 else:
     sys.exit('unknown case ' + case)
 f.close()
