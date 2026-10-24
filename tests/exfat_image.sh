@@ -5,6 +5,8 @@
 # file larger than its valid data length.  The files are also kept in
 # DIR/files for comparison.
 #   tests/exfat_image.sh DIR [SIZE_MB [CLUSTER]]   -> DIR/exfat.img
+# FORMAT=exfmt: formatted by the code of EXFMT (build/host/test_exfmt)
+# instead of mkfs.exfat.
 set -eu
 dir=$1; size=${2:-64}; cluster=${3:-4K}
 img=$dir/exfat.img; files=$dir/files
@@ -25,7 +27,12 @@ printf 'zwei Punkte\r\n' > "$files/archiv.tar.gz"
 head -c 300000 /dev/urandom > "$files/zufall.bin"
 
 truncate -s "${size}M" "$img"
-mkfs.exfat -q -c "$cluster" -L OPENASPI "$img"
+if test "${FORMAT:-}" = exfmt; then
+    bytes=$(echo "$cluster" | sed 's/[kK]$/*1024/; s/[mM]$/*1048576/')
+    "$(dirname "$0")/../build/host/test_exfmt" "$img" $((bytes)) 1 OPENASPI >/dev/null
+else
+    mkfs.exfat -q -c "$cluster" -L OPENASPI "$img"
+fi
 loop=$(udisksctl loop-setup --no-user-interaction -f "$img" | sed -n 's/.* as \(\/dev\/[a-z0-9]*\)\.$/\1/p')
 trap 'udisksctl unmount --no-user-interaction -b "$loop" >/dev/null 2>&1 || true; udisksctl loop-delete --no-user-interaction -b "$loop" >/dev/null 2>&1 || true' EXIT
 udisksctl mount --no-user-interaction -b "$loop" >/dev/null
