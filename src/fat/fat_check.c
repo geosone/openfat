@@ -1,5 +1,5 @@
 /* FAT12/16/32 volume check (ASPICHK).  The checks and repairs follow
-   fsck.fat of dosfstools 4.2 (GPL version 3 or later); the walk is the one
+   fsck.fat of dosfstools 4.2 (its rules, none of its code); the walk is the one
    of EXCHK: errors about the structure (boot sector, FATs, entries, chains)
    are reported and repaired in the first pass, errors about single clusters
    (lost, cross-linked) in the pass whose window holds the cluster.  Repairs
