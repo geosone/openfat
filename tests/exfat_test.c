@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "testcp.h"
 #include "openfat/exfat.h"
 
 static FILE *image;
@@ -104,7 +105,7 @@ static void basis(const char *ascii, const char *want, int lossy)
     char fcb[11];
     unsigned n;
     for (n = 0; ascii[n]; ++n) name[n] = (ofat_u8)ascii[n];
-    assert(ofat_cp_basis(&ofat_cp850, name, n, fcb) == lossy);
+    assert(ofat_cp_basis(test_cp(850), name, n, fcb) == lossy);
     assert(!memcmp(fcb, want, 11));
 }
 
@@ -114,6 +115,8 @@ int main(int argc, char **argv)
     static const ofat_u16 euro[] = { 0x20AC, '.', 'T', 'X', 'T' };
     ofat_u32 start = argc > 2 ? strtoul(argv[2], NULL, 0) : 0, free_clusters;
     struct ofat_exfat_file root;
+    static const ofat_u16 agrave[] = { 0xC0, '.', 't', 'x', 't' };
+    struct ofat_cp bad;
     char fcb[11];
     int r;
     basis("README.TXT", "README  TXT", 0);
@@ -124,13 +127,22 @@ int main(int argc, char **argv)
     basis("a+b=c.txt", "A_B_C   TXT", 1);
     basis("NOEXT", "NOEXT      ", 0);
     basis("x.html", "X       HTM", 1);
-    assert(!ofat_cp_basis(&ofat_cp850, umlaut, 9, fcb) && !memcmp(fcb, "\x8ERGER   TXT", 11));
-    assert(!ofat_cp_basis(&ofat_cp437, umlaut, 9, fcb) && !memcmp(fcb, "\x8ERGER   TXT", 11));
-    assert(ofat_cp_basis(&ofat_cp850, euro, 5, fcb) && !memcmp(fcb, "_       TXT", 11));
+    assert(!ofat_cp_basis(test_cp(850), umlaut, 9, fcb) && !memcmp(fcb, "\x8ERGER   TXT", 11));
+    assert(!ofat_cp_basis(test_cp(437), umlaut, 9, fcb) && !memcmp(fcb, "\x8ERGER   TXT", 11));
+    assert(ofat_cp_basis(test_cp(850), euro, 5, fcb) && !memcmp(fcb, "_       TXT", 11));
+    /* from UNI_437.TAB and UNI_850.TAB: DOS upper case, "a" with grave is
+       "A" in 437 (no such capital) and B7h in 850; a capital that is not
+       in the code page becomes its base letter (lossy) */
+    assert(test_cp(437)->uni[0x85 - 0x80] == 0x00E0 && test_cp(437)->upper[0x85 - 0x80] == 'A');
+    assert(test_cp(437)->upper[0x82 - 0x80] == 0x90 && test_cp(437)->upper[0x98 - 0x80] == 'Y');
+    assert(test_cp(850)->upper[0x85 - 0x80] == 0xB7 && test_cp(850)->upper[0xE1 - 0x80] == 0xE1);
+    assert(ofat_cp_basis(test_cp(437), agrave, 5, fcb) && !memcmp(fcb, "A       TXT", 11));
+    assert(!ofat_cp_basis(test_cp(850), agrave, 5, fcb) && !memcmp(fcb, "\xB7       TXT", 11));
+    assert(ofat_cp_load(&bad, 437, (const ofat_u8 *)"short", 5) == -1);
     if (argc < 2) { puts("exFAT name tests passed"); return 0; }
     image = fopen(argv[1], "rb");
     assert(image);
-    r = ofat_exfat_mount(&vol, img_read, NULL, start, &ofat_cp850, sector_buf);
+    r = ofat_exfat_mount(&vol, img_read, NULL, start, test_cp(850), sector_buf);
     if (r) { fprintf(stderr, "mount: %d\n", r); return 1; }
     if (argc > 3) { cat(argv[3]); return 0; }
     assert(!ofat_exfat_free(&vol, &free_clusters));

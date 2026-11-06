@@ -11,7 +11,7 @@ GonWare.
 | --- | --- | --- |
 | FAT | `src/fat/fat.c` | FAT12/16/32 with VFAT long names: mounting, directories, reading, writing, creating (8.3 names with NT case bits or `~n` and a long name), removing, renaming and moving, attributes, times; dirty bit, FSInfo, every FAT copy |
 | Partitions | `src/part/part.c` | MBR with the EBR chain of logical partitions, GPT with CRC checks and the backup header, superfloppy detection |
-| Code pages | `src/codepage.c`, `src/name83.c` | code pages 437 and 850, 8.3 basis names (shared by FAT and exFAT) |
+| Code pages | `src/codepage.c`, `src/latin.c`, `src/name83.c` | OEM code pages loaded from the `UNI_<cp>.TAB` files of [mars-unicode-tables](https://gitea.disconnected-by-peer.at/mars_nwe/mars-unicode-tables) (`ofat_cp_load`), DOS upper case, 8.3 basis names (shared by FAT and exFAT) |
 | exFAT | `src/exfat/exfat.c` | mounting, directories, reading, writing, creating, removing, renaming; TexFAT volumes (two FATs and bitmaps) are read through the active copy and both copies are changed alike |
 | exFAT format | `src/exfat/exfat_format.c`, `upcase.c` | layout, boot region, bitmap, up-case table, root directory; TexFAT, bad clusters |
 | exFAT check | `src/exfat/exfat_check.c` | checking and repairing |
@@ -44,7 +44,10 @@ make check      # everything, including the image tests
 The image tests compare with what the Linux drivers read and write, and
 with fsck.fat, fsck.exfat and sfdisk. They need mkfs.fat, fsck.fat, mkfs.exfat, fsck.exfat, mtools,
 Python 3, sfdisk and udisksctl (they fill images through the Linux drivers without
-root).
+root). The tests load the code pages from `UNITAB` (default
+`../mars-unicode-tables/TAB/unitables`, a checkout next to this one).
+`src/latin.c` is made by `tools/mklatin.py` from `UCD/UnicodeData.txt` of
+the same repository.
 
 CMake (as a subproject) gives `OpenFAT::fat` and `OpenFAT::check`.
 

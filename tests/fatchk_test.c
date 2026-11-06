@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "testcp.h"
 #include "openfat/fat_check.h"
 #include "openfat/exfat.h"           /* the code page tables */
 
@@ -53,7 +54,7 @@ int main(int argc, char **argv)
     image = fopen(argv[1], fix ? "r+b" : "rb");
     if (!image) { perror(argv[1]); return 2; }
     memset(&c, 0, sizeof(c));
-    c.read = img_read; c.cp = ofat_cp850.uni; c.msg = msg; c.mark = mark; c.clear = clear;
+    c.read = img_read; c.cp = test_cp(850)->uni; c.msg = msg; c.mark = mark; c.clear = clear;
     c.start = argc > 2 ? strtoul(argv[2], NULL, 0) : 0;
     {   /* the sector size of the volume (LBA in 512-byte units until known) */
         unsigned char b[512];

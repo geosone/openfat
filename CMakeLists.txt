@@ -15,6 +15,7 @@ project(openfat LANGUAGES C)
 add_library(openfat_fat STATIC
   src/exfat/exfat.c
   src/codepage.c
+  src/latin.c
   src/name83.c
   src/exfat/exfat_format.c
   src/exfat/upcase.c

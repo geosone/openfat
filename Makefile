@@ -7,8 +7,12 @@ CFLAGS  ?= -std=c90 -Wall -Wextra -Werror -pedantic -O2
 CPPFLAGS += -Iinclude
 
 HDR      := $(wildcard include/openfat/*.h)
-FATSRC   := src/fat/fat.c src/codepage.c src/name83.c
-EXFAT    := src/exfat/exfat.c src/codepage.c src/name83.c
+CPSRC    := src/codepage.c src/latin.c src/exfat/upcase.c src/name83.c
+FATSRC   := src/fat/fat.c $(CPSRC)
+EXFAT    := src/exfat/exfat.c $(CPSRC)
+# the UNI_<cp>.TAB files the tests load (mars-unicode-tables)
+UNITAB   ?= ../mars-unicode-tables/TAB/unitables
+CPPFLAGS += -DUNITAB=\"$(abspath $(UNITAB))\"
 SRC      := $(wildcard src/*.c src/*/*.c)
 H        := $(BUILD)/host
 
@@ -39,7 +43,7 @@ $(H)/test_exfat_write: tests/exfat_write_test.c $(EXFAT) $(HDR)
 $(H)/test_exfat_big: tests/exfat_big_test.c $(EXFAT) $(HDR)
 $(H)/test_exchk: tests/exchk_test.c src/exfat/exfat_check.c $(EXFAT) $(HDR)
 $(H)/test_exfmt: tests/exfmt_test.c src/exfat/exfat_format.c src/exfat/upcase.c $(HDR)
-$(H)/test_fatchk: tests/fatchk_test.c src/fat/fat_check.c src/codepage.c $(HDR)
+$(H)/test_fatchk: tests/fatchk_test.c src/fat/fat_check.c $(CPSRC) $(HDR)
 $(H)/test_defrag: tests/defrag_test.c src/fat/fat_defrag.c $(HDR)
 $(H)/test_fat_format: tests/fat_format_test.c src/fat/fat_format.c $(HDR)
 $(H)/test_fat_write: tests/fat_write_test.c $(FATSRC) $(HDR)

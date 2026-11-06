@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "testcp.h"
 #include "openfat/exfat.h"
 
 #define GIB4 ((ofat_u64)1 << 32)
@@ -133,7 +134,7 @@ int main(int argc, char **argv)
     if (argc != 2) { fprintf(stderr, "exfat_big_test IMAGE | -v FILE N\n"); return 2; }
     image = fopen(argv[1], "r+b");
     assert(image);
-    CHECK(ofat_exfat_mount(&vol, img_read, NULL, 0, &ofat_cp850, sector_buf));
+    CHECK(ofat_exfat_mount(&vol, img_read, NULL, 0, test_cp(850), sector_buf));
     vol.write = img_write;
     /* more than 2^32 sectors with 512-byte sectors; with 4 KiB sectors
        that takes more than 16 TiB (past what ext4 allows for a file), so
@@ -150,7 +151,7 @@ int main(int argc, char **argv)
     make("BIG.BIN", big, 2);
     CHECK(ofat_exfat_clean(&vol));
     /* again from the medium */
-    CHECK(ofat_exfat_mount(&vol, img_read, NULL, 0, &ofat_cp850, sector_buf));
+    CHECK(ofat_exfat_mount(&vol, img_read, NULL, 0, test_cp(850), sector_buf));
     check("HIGH.BIN", 3000000, 1, 1);
     check("BIG.BIN", big, 2, 97);
     printf("exFAT big test passed: last sector written %llu\n", (unsigned long long)top);

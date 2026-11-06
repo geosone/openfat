@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "testcp.h"
 #include "openfat/fat.h"
 
 static FILE *image;
@@ -268,7 +269,7 @@ int main(int argc, char **argv)
         assert(fread(b, 512, 1, image) == 1);
         ssize = (unsigned)(b[11] | b[12] << 8);
     }
-    CHECK(ofat_fat_mount(&vol, img_read, NULL, 0, &ofat_cp850, sector_buf));
+    CHECK(ofat_fat_mount(&vol, img_read, NULL, 0, test_cp(850), sector_buf));
     vol.write = img_write;
     assert(!dirty());
     CHECK(ofat_fat_free(&vol, &free0));         /* counted from here on */
