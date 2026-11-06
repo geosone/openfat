@@ -4,6 +4,7 @@
 # a fragmented file (written in turns with another file that is deleted),
 # small and empty files.  The files are also kept in DIR/files.
 #   tests/fat_image.sh DIR [SIZE_MB [BITS]]   -> DIR/fat.img   (BITS 12, 16, 32)
+# MKFS_OPTS: more options for mkfs.fat (cluster size, sector size, root entries)
 set -eu
 dir=$1; size=${2:-32}; bits=${3:-16}
 img=$dir/fat.img; files=$dir/files
@@ -22,7 +23,8 @@ printf 'sub\r\n' > "$files/SUB/A.B"
 head -c 100000 /dev/urandom > "$files/zufall.bin"
 
 truncate -s "${size}M" "$img"
-mkfs.fat -F "$bits" -n FATTEST "$img" >/dev/null
+# shellcheck disable=SC2086
+mkfs.fat -F "$bits" ${MKFS_OPTS:-} -n FATTEST "$img" >/dev/null
 loop=$(udisksctl loop-setup --no-user-interaction -f "$img" | sed -n 's/.* as \(\/dev\/[a-z0-9]*\)\.$/\1/p')
 trap 'udisksctl unmount --no-user-interaction -b "$loop" >/dev/null 2>&1 || true; udisksctl loop-delete --no-user-interaction -b "$loop" >/dev/null 2>&1 || true' EXIT
 udisksctl mount --no-user-interaction -b "$loop" -o utf8 >/dev/null

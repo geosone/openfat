@@ -9,7 +9,10 @@ GonWare.
 
 | Part | Files | Content |
 | --- | --- | --- |
-| exFAT | `src/exfat/exfat.c`, `codepage.c` | mounting, directories, reading, writing, creating, removing, renaming; TexFAT volumes (two FATs and bitmaps) are read through the active copy and both copies are changed alike |
+| FAT | `src/fat/fat.c` | FAT12/16/32 with VFAT long names: mounting, directories, reading, writing, creating (8.3 names with NT case bits or `~n` and a long name), removing, renaming and moving, attributes, times; dirty bit, FSInfo, every FAT copy |
+| Partitions | `src/part/part.c` | MBR with the EBR chain of logical partitions, GPT with CRC checks and the backup header, superfloppy detection |
+| Code pages | `src/codepage.c`, `src/name83.c` | code pages 437 and 850, 8.3 basis names (shared by FAT and exFAT) |
+| exFAT | `src/exfat/exfat.c` | mounting, directories, reading, writing, creating, removing, renaming; TexFAT volumes (two FATs and bitmaps) are read through the active copy and both copies are changed alike |
 | exFAT format | `src/exfat/exfat_format.c`, `upcase.c` | layout, boot region, bitmap, up-case table, root directory; TexFAT, bad clusters |
 | exFAT check | `src/exfat/exfat_check.c` | checking and repairing |
 | FAT format | `src/fat/fat_format.c` | FAT12/16/32 layout, boot sector, FSInfo |
@@ -19,9 +22,8 @@ GonWare.
 All names start with `ofat_` (`OFAT_` for constants); `include/openfat/types.h`
 gives the fixed-width types.
 
-Planned: partition tables (GPT, MBR with extended partitions), file access to
-FAT12/16/32 with long names, TexFAT transactions, and the tools OFORMAT, OFSCK
-and ODEFRAG for every FAT variant.
+Planned: TexFAT transactions, and the tools OFORMAT, OFSCK and ODEFRAG for
+every FAT variant.
 
 ## Building and testing
 
@@ -32,8 +34,9 @@ make dos-check  # every source as a 16-bit DOS object (OpenWatcom, WATCOM=/opt/w
 make check      # everything, including the image tests
 ```
 
-The image tests need mkfs.fat, fsck.fat, mkfs.exfat, fsck.exfat, mtools,
-Python 3 and udisksctl (they fill images through the Linux drivers without
+The image tests compare with what the Linux drivers read and write, and
+with fsck.fat, fsck.exfat and sfdisk. They need mkfs.fat, fsck.fat, mkfs.exfat, fsck.exfat, mtools,
+Python 3, sfdisk and udisksctl (they fill images through the Linux drivers without
 root).
 
 CMake (as a subproject) gives `OpenFAT::fat` and `OpenFAT::check`.

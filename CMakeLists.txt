@@ -18,6 +18,7 @@ add_library(openfat_fat STATIC
   src/name83.c
   src/exfat/exfat_format.c
   src/exfat/upcase.c
+  src/fat/fat.c
   src/fat/fat_format.c
   src/part/part.c)
 target_include_directories(openfat_fat PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
