@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "openaspi/fat_defrag.h"
+#include "openfat/fat_defrag.h"
 
 #define MEM (8UL << 20)
 
@@ -14,14 +14,14 @@ static FILE *image;
 static unsigned char *mem;
 static unsigned long budget = (unsigned long)-1, written;
 
-static int img_read(void *dev, oa_u32 lba, unsigned count, void *buf)
+static int img_read(void *dev, ofat_u32 lba, unsigned count, void *buf)
 {
     (void)dev;
     if (fseek(image, (long)lba * 512, SEEK_SET)) return -1;
     return fread(buf, 512, count, image) == count ? 0 : -1;
 }
 
-static int img_write(void *dev, oa_u32 lba, unsigned count, const void *buf)
+static int img_write(void *dev, ofat_u32 lba, unsigned count, const void *buf)
 {
     (void)dev;
     if (fseek(image, (long)lba * 512, SEEK_SET)) return -1;
@@ -35,14 +35,14 @@ static int img_write(void *dev, oa_u32 lba, unsigned count, const void *buf)
     return fwrite(buf, 512, count, image) == count ? 0 : -1;
 }
 
-static void *at(void *ctx, oa_u32 off) { (void)ctx; return mem + off; }
+static void *at(void *ctx, ofat_u32 off) { (void)ctx; return mem + off; }
 
 int main(int argc, char **argv)
 {
-    static oa_u16 order[65535];
+    static ofat_u16 order[65535];
     static unsigned char buf[32768];
-    struct oa_defrag d;
-    oa_u32 c, last = 0, gaps = 0;
+    struct ofat_defrag d;
+    ofat_u32 c, last = 0, gaps = 0;
     int r, mode = argc > 2 ? argv[2][0] : 'A';
     if (argc < 2) { fputs("defrag_test IMAGE [A|U|F [SECTORS]]\n", stderr); return 2; }
     if (argc > 3) budget = strtoul(argv[3], NULL, 0);
@@ -51,14 +51,14 @@ int main(int argc, char **argv)
     mem = malloc(MEM);
     memset(&d, 0, sizeof(d));
     d.read = img_read; d.write = img_write;
-    d.mode = mode == 'F' ? OA_DEFRAG_FULL : mode == 'U' ? OA_DEFRAG_FILES : OA_DEFRAG_ANALYZE;
+    d.mode = mode == 'F' ? OFAT_DEFRAG_FULL : mode == 'U' ? OFAT_DEFRAG_FILES : OFAT_DEFRAG_ANALYZE;
     d.mem = at; d.memsize = MEM; d.block = 1UL << 30;
     d.order = order; d.maxitems = 65535;
     d.buf = buf; d.bufsize = sizeof(buf);
-    r = oa_defrag_run(&d);
+    r = ofat_defrag_run(&d);
     if (r) { printf("stopped: %d\n", r); return 2; }
-    for (c = 2; c < d.clusters + 2; ++c) if (oa_defrag_used(c)) last = c;
-    for (c = 2; c < last; ++c) if (!oa_defrag_used(c) && oa_defrag_used(c + 1)) ++gaps;
+    for (c = 2; c < d.clusters + 2; ++c) if (ofat_defrag_used(c)) last = c;
+    for (c = 2; c < last; ++c) if (!ofat_defrag_used(c) && ofat_defrag_used(c + 1)) ++gaps;
     printf("FAT%u: %lu files, %lu directories, %lu clusters, %lu used\n", d.bits, (unsigned long)d.files,
            (unsigned long)d.dirs, (unsigned long)d.clusters, (unsigned long)d.used);
     printf("fragmented %lu, after %lu; moves %lu, clusters moved %lu, sectors written %lu; gaps %lu\n",

@@ -1,5 +1,5 @@
 #!/bin/bash
-# The exFAT writing of common/exfat/exfat.c on the host: tests/exfat_write_test.c
+# The exFAT writing of src/exfat/exfat.c on the host: tests/exfat_write_test.c
 # changes an image of tests/exfat_image.sh and the same files in a mirror
 # directory; fsck.exfat checks the image and the Linux exFAT driver must
 # read the same tree as the mirror.  Then the same on TexFAT images (both

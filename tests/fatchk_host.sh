@@ -6,7 +6,7 @@
 # afterwards the check and fsck.fat must find no error.  A chain broken in
 # the first FAT (fat1) must come back whole from the second: FRAG.BIN read
 # by mtools equal to the original.
-#   tests/aspichk_host.sh [DIR]
+#   tests/fatchk_host.sh [DIR]
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 dir=${1:-$ROOT/build/aspichk-host}

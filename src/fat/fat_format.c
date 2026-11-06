@@ -5,9 +5,9 @@
  * byte stores, rather than relying on the host's alignment or struct layout.
  */
 #include <string.h>
-#include "openaspi/fat_format.h"
-static void le16(unsigned char *p, oa_u16 v) { p[0] = (oa_u8)v; p[1] = (oa_u8)(v >> 8); }
-static void le32(unsigned char *p, oa_u32 v) { le16(p, (oa_u16)v); le16(p+2, (oa_u16)(v >> 16)); }
+#include "openfat/fat_format.h"
+static void le16(unsigned char *p, ofat_u16 v) { p[0] = (ofat_u8)v; p[1] = (ofat_u8)(v >> 8); }
+static void le32(unsigned char *p, ofat_u32 v) { le16(p, (ofat_u16)v); le16(p+2, (ofat_u16)(v >> 16)); }
 /* Find a power-of-two sectors-per-cluster and a sufficiently large FAT.
  * FAT size consumes space that would otherwise contain clusters, so solve
  * that dependency iteratively. Two reserved entries count toward FAT size;
@@ -15,13 +15,13 @@ static void le32(unsigned char *p, oa_u32 v) { le16(p, (oa_u16)v); le16(p+2, (oa
  * are based on the resulting cluster count, not the textual FAT label.
  * Return 0 on success; a failed search may leave a partial layout in *f.
  */
-static int layout(struct oa_fat_layout *f, oa_u32 total, oa_u32 hidden,unsigned bits)
+static int layout(struct ofat_fat_layout *f, ofat_u32 total, ofat_u32 hidden,unsigned bits)
 {
-    oa_u32 data, clusters, needed, fat;
+    ofat_u32 data, clusters, needed, fat;
     unsigned spc, pass;
     if (total < 128 || total > 4194303UL || hidden > 0xFFFFFFFFUL-total) return -1;
     memset(f, 0, sizeof(*f)); f->sectors = total; f->hidden = hidden;
-    f->bits = (oa_u8)(bits ? bits : total < 8400UL ? 12 : 16);
+    f->bits = (ofat_u8)(bits ? bits : total < 8400UL ? 12 : 16);
     f->reserved = f->bits==32 ? 32 : 1;
     /* FAT12/16 directory entries occupy 32 bytes each (16 per sector).
      * These selected entry counts are sector-aligned. FAT32 has no fixed root
@@ -53,7 +53,7 @@ static int layout(struct oa_fat_layout *f, oa_u32 total, oa_u32 hidden,unsigned 
                 if ((f->bits == 12 && clusters >= 1 && clusters < 4085) ||
                     (f->bits == 16 && clusters >= 4085 && clusters < 65525) ||
                     (f->bits == 32 && clusters >= 65525 && clusters < 0x0FFFFFF5UL)) {
-                    f->spc = (oa_u8)spc; f->fat_sectors = (oa_u16)fat;
+                    f->spc = (ofat_u8)spc; f->fat_sectors = (ofat_u16)fat;
                     f->clusters = clusters; return 0;
                 }
                 break;
@@ -63,9 +63,9 @@ static int layout(struct oa_fat_layout *f, oa_u32 total, oa_u32 hidden,unsigned 
     }
     return -1;
 }
-int oa_fat_layout(struct oa_fat_layout *f,oa_u32 total,oa_u32 hidden) { return layout(f,total,hidden,0); }
-int oa_fat_layout32(struct oa_fat_layout *f,oa_u32 total,oa_u32 hidden) { return layout(f,total,hidden,32); }
-void oa_fat_boot(const struct oa_fat_layout *f, oa_u32 serial, unsigned char *b)
+int ofat_fat_layout(struct ofat_fat_layout *f,ofat_u32 total,ofat_u32 hidden) { return layout(f,total,hidden,0); }
+int ofat_fat_layout32(struct ofat_fat_layout *f,ofat_u32 total,ofat_u32 hidden) { return layout(f,total,hidden,32); }
+void ofat_fat_boot(const struct ofat_fat_layout *f, ofat_u32 serial, unsigned char *b)
 {
     /* BIOS entry prints a non-system-disk message and invokes INT 18h. */
     static const unsigned char code[] = {
@@ -80,7 +80,7 @@ void oa_fat_boot(const struct oa_fat_layout *f, oa_u32 serial, unsigned char *b)
     memset(b, 0, 512); b[0]=0xEB; b[1]=0x3C; b[2]=0x90;
     memcpy(b+3, "OPENASPI", 8); le16(b+11, 512); b[13]=f->spc;
     le16(b+14, f->reserved); b[16]=2; le16(b+17, f->root_entries);
-    if (f->bits!=32 && f->sectors <= 65535UL) le16(b+19, (oa_u16)f->sectors);
+    if (f->bits!=32 && f->sectors <= 65535UL) le16(b+19, (ofat_u16)f->sectors);
     else le32(b+32, f->sectors);
     b[21]=f->media; le16(b+22, f->fat_sectors);
     le16(b+24, f->spt); le16(b+26, f->heads); le32(b+28, f->hidden);
@@ -109,7 +109,7 @@ void oa_fat_boot(const struct oa_fat_layout *f, oa_u32 serial, unsigned char *b)
      */
     b[510]=0x55; b[511]=0xAA;
 }
-void oa_fat_first(const struct oa_fat_layout *f, unsigned char *b)
+void ofat_fat_first(const struct ofat_fat_layout *f, unsigned char *b)
 {
     memset(b, 0, 512); b[0]=f->media; b[1]=b[2]=0xFF;
     if (f->bits==16) b[3]=0xFF;
@@ -118,7 +118,7 @@ void oa_fat_first(const struct oa_fat_layout *f, unsigned char *b)
 /* FAT32 starts with cluster 2 allocated to the root directory. FSINFO is a
  * free-space hint; the formatter adjusts it after marking any bad clusters.
  */
-void oa_fat_fsinfo(const struct oa_fat_layout *f,unsigned char *b)
+void ofat_fat_fsinfo(const struct ofat_fat_layout *f,unsigned char *b)
 {
     /* FSINFO signatures at 0/484 and trailing 0000 55AA at 508. Initial
      * free count excludes root cluster 2; next-free hint starts at cluster 3.
@@ -130,7 +130,7 @@ void oa_fat_fsinfo(const struct oa_fat_layout *f,unsigned char *b)
 /* Byte offset into a FAT, not a sector or physical LBA. FAT12 packs two
  * 12-bit entries into three bytes, so an entry can straddle a sector boundary.
  */
-oa_u32 oa_fat_entry_offset(unsigned bits,oa_u32 cluster)
+ofat_u32 ofat_fat_entry_offset(unsigned bits,ofat_u32 cluster)
 {
     return bits==12 ? cluster+cluster/2 : cluster*(bits/8);
 }
@@ -139,10 +139,10 @@ oa_u32 oa_fat_entry_offset(unsigned bits,oa_u32 cluster)
  * nibble or reserved FAT32 high nibble. Return 1 if changed, 0 already bad,
  * -1 for an unsupported FAT width; no disk writes or cluster checks here.
  */
-int oa_fat_mark_bad(unsigned bits,oa_u32 cluster,unsigned char *p)
+int ofat_fat_mark_bad(unsigned bits,ofat_u32 cluster,unsigned char *p)
 {
-    oa_u32 old,value;
-    old=(oa_u32)p[0]|(oa_u32)p[1]<<8;
+    ofat_u32 old,value;
+    old=(ofat_u32)p[0]|(ofat_u32)p[1]<<8;
     if(bits==12) {
         if((cluster&1 ? old>>4 : old&0xFFF)==0xFF7) return 0;
         /* Odd FAT12 clusters use the upper 12 bits, so preserve low nibble;
@@ -150,12 +150,12 @@ int oa_fat_mark_bad(unsigned bits,oa_u32 cluster,unsigned char *p)
          * FF7h is the bad-cluster marker, distinct from end-of-chain FF8h+.
          */
         value=cluster&1 ? (old&15)|0xFF70 : (old&0xF000)|0xFF7;
-        le16(p,(oa_u16)value);
+        le16(p,(ofat_u16)value);
     } else if(bits==16) {
         if(old==0xFFF7) return 0;
         le16(p,0xFFF7);
     } else if(bits==32) {
-        old|=(oa_u32)p[2]<<16|(oa_u32)p[3]<<24;
+        old|=(ofat_u32)p[2]<<16|(ofat_u32)p[3]<<24;
         if((old&0x0FFFFFFFUL)==0x0FFFFFF7UL) return 0;
         /* FAT32 reserves the high four bits. Replace only the low 28 with
          * 0FFFFFF7h; overwriting the whole DWORD would erase reserved bits.

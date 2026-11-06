@@ -2,7 +2,7 @@
    the layout, then the FAT(s), allocation bitmap(s), up-case table, root
    directory and the boot region. */
 #include <string.h>
-#include "openaspi/exfat_format.h"
+#include "openfat/exfat_format.h"
 
 #ifdef __WATCOMC__
 #define fmemcpy _fmemcpy
@@ -16,14 +16,14 @@
 #define EOC    0xFFFFFFFFUL
 #define NFILES 4                        /* bitmap, second bitmap, up-case table, root */
 
-static void wr16(oa_u8 OA_FAR *p, oa_u16 v) { p[0] = (oa_u8)v; p[1] = (oa_u8)(v >> 8); }
-static void wr32(oa_u8 OA_FAR *p, oa_u32 v) { wr16(p, (oa_u16)v); wr16(p + 2, (oa_u16)(v >> 16)); }
-static oa_u32 rot32(oa_u32 sum, oa_u8 b) { return ((sum & 1) ? 0x80000000UL : 0) + (sum >> 1) + b; }
+static void wr16(ofat_u8 OFAT_FAR *p, ofat_u16 v) { p[0] = (ofat_u8)v; p[1] = (ofat_u8)(v >> 8); }
+static void wr32(ofat_u8 OFAT_FAR *p, ofat_u32 v) { wr16(p, (ofat_u16)v); wr16(p + 2, (ofat_u16)(v >> 16)); }
+static ofat_u32 rot32(ofat_u32 sum, ofat_u8 b) { return ((sum & 1) ? 0x80000000UL : 0) + (sum >> 1) + b; }
 
-int oa_exfmt_layout(struct oa_exfmt *f)
+int ofat_exfmt_layout(struct ofat_exfmt *f)
 {
-    oa_u32 csz = f->cluster, spc, mb = f->sectors >> 11, len = 0, need, n;
-    if (f->sectors < OA_EXFMT_MINSECT || (f->nfats != 1 && f->nfats != 2) || f->label_len > 11) return -1;
+    ofat_u32 csz = f->cluster, spc, mb = f->sectors >> 11, len = 0, need, n;
+    if (f->sectors < OFAT_EXFMT_MINSECT || (f->nfats != 1 && f->nfats != 2) || f->label_len > 11) return -1;
     if (!csz) csz = mb <= 256 ? 4096UL : mb <= 32768UL ? 32768UL : 131072UL;
     for (f->cshift = 0; f->cshift < 16 && (512UL << f->cshift) < csz; ++f->cshift) ;
     if ((512UL << f->cshift) != csz) return -1;     /* a power of two, 512 bytes to 32 MB */
@@ -41,17 +41,17 @@ int oa_exfmt_layout(struct oa_exfmt *f)
     f->clusters = n;
     f->bitmap_len = (n + 7) / 8;
     f->sys_clusters = f->nfats * ((f->bitmap_len + (csz - 1)) >> (9 + f->cshift))
-                      + ((OA_EXFMT_UPCASE_LEN + csz - 1) >> (9 + f->cshift)) + 1;
+                      + ((OFAT_EXFMT_UPCASE_LEN + csz - 1) >> (9 + f->cshift)) + 1;
     return n > 0xFFFFFFF5UL || n <= f->sys_clusters ? -1 : 0;
 }
 
 /* the format in progress */
-static struct oa_exfmt *F;
-static const oa_u32 *bad;
+static struct ofat_exfmt *F;
+static const ofat_u32 *bad;
 static unsigned nbad, bi;               /* bi: first bad cluster >= the last asked */
-static oa_u32 first[NFILES], last[NFILES], size[NFILES], sys_end;
+static ofat_u32 first[NFILES], last[NFILES], size[NFILES], sys_end;
 
-static int is_bad(oa_u32 c)
+static int is_bad(ofat_u32 c)
 {
     if (bi && bad[bi - 1] >= c) bi = 0;
     while (bi < nbad && bad[bi] < c) ++bi;
@@ -59,13 +59,13 @@ static int is_bad(oa_u32 c)
 }
 
 /* the next good cluster after c */
-static oa_u32 next_good(oa_u32 c)
+static ofat_u32 next_good(ofat_u32 c)
 {
     do ++c; while (is_bad(c));
     return c;
 }
 
-static oa_u32 fat_entry(oa_u32 c)
+static ofat_u32 fat_entry(ofat_u32 c)
 {
     unsigned k;
     if (c < 2) return c ? EOC : 0xFFFFFFF8UL;
@@ -76,21 +76,21 @@ static oa_u32 fat_entry(oa_u32 c)
 }
 
 /* the clusters from c on that are free: neither system nor bad */
-static oa_u32 free_run(oa_u32 c)
+static ofat_u32 free_run(ofat_u32 c)
 {
     if (c < sys_end || is_bad(c)) return 0;
     return bi < nbad ? bad[bi] - c : 0xFFFFFFFFUL;
 }
 
 /* n entries of the FAT from entry e on */
-static void fill_fat(oa_u8 OA_FAR *b, oa_u32 e, unsigned n)
+static void fill_fat(ofat_u8 OFAT_FAR *b, ofat_u32 e, unsigned n)
 {
-    oa_u32 run;
+    ofat_u32 run;
     unsigned i = 0, k;
     while (i < n) {
         run = e + i >= F->clusters + 2 ? 0xFFFFFFFFUL : free_run(e + i);
         if (run) {
-            k = run < (oa_u32)(n - i) ? (unsigned)run : n - i;
+            k = run < (ofat_u32)(n - i) ? (unsigned)run : n - i;
             fmemset(b + 4 * i, 0, 4 * k);
             i += k;
         } else {
@@ -101,26 +101,26 @@ static void fill_fat(oa_u8 OA_FAR *b, oa_u32 e, unsigned n)
 }
 
 /* n bytes of the allocation bitmap from byte o on */
-static void fill_bitmap(oa_u8 OA_FAR *b, oa_u32 o, unsigned n)
+static void fill_bitmap(ofat_u8 OFAT_FAR *b, ofat_u32 o, unsigned n)
 {
     unsigned i, j;
-    oa_u32 c;
-    oa_u8 v;
+    ofat_u32 c;
+    ofat_u8 v;
     for (i = 0; i < n; ++i, ++o) {
         c = 2 + o * 8;
         v = 0;
         if (o >= F->bitmap_len || free_run(c) >= 8) { b[i] = 0; continue; }
         for (j = 0; j < 8; ++j, ++c)
-            if (c < F->clusters + 2 && (c < sys_end || is_bad(c))) v |= (oa_u8)(1 << j);
+            if (c < F->clusters + 2 && (c < sys_end || is_bad(c))) v |= (ofat_u8)(1 << j);
         b[i] = v;
     }
 }
 
-static void root_dir(oa_u8 OA_FAR *b)
+static void root_dir(ofat_u8 OFAT_FAR *b)
 {
-    oa_u32 sum = 0;
+    ofat_u32 sum = 0;
     unsigned i;
-    oa_u8 OA_FAR *e = b;
+    ofat_u8 OFAT_FAR *e = b;
     fmemset(b, 0, 512);
     if (F->label_len) {
         e[0] = 0x83;
@@ -130,32 +130,32 @@ static void root_dir(oa_u8 OA_FAR *b)
     }
     for (i = 0; i < F->nfats; ++i, e += 32) {
         e[0] = 0x81;
-        e[1] = (oa_u8)i;                /* BitmapFlags: first or second bitmap */
+        e[1] = (ofat_u8)i;                /* BitmapFlags: first or second bitmap */
         wr32(e + 20, first[i]);
         wr32(e + 24, F->bitmap_len);
     }
-    for (i = 0; i < OA_EXFMT_UPCASE_LEN; ++i) sum = rot32(sum, oa_exfmt_upcase[i]);
+    for (i = 0; i < OFAT_EXFMT_UPCASE_LEN; ++i) sum = rot32(sum, ofat_exfmt_upcase[i]);
     e[0] = 0x82;
     wr32(e + 4, sum);
     wr32(e + 20, first[2]);
-    wr32(e + 24, OA_EXFMT_UPCASE_LEN);
+    wr32(e + 24, OFAT_EXFMT_UPCASE_LEN);
 }
 
 /* sector s of system file k */
-static void file_sector(unsigned k, oa_u32 s, oa_u8 OA_FAR *b)
+static void file_sector(unsigned k, ofat_u32 s, ofat_u8 OFAT_FAR *b)
 {
-    oa_u32 o = s * 512;
+    ofat_u32 o = s * 512;
     fmemset(b, 0, 512);
     if (k < 2) fill_bitmap(b, o, 512);
     else if (k == 2) {
-        if (o < OA_EXFMT_UPCASE_LEN)
-            fmemcpy(b, oa_exfmt_upcase + (unsigned)o, OA_EXFMT_UPCASE_LEN - o < 512 ? (unsigned)(OA_EXFMT_UPCASE_LEN - o) : 512);
+        if (o < OFAT_EXFMT_UPCASE_LEN)
+            fmemcpy(b, ofat_exfmt_upcase + (unsigned)o, OFAT_EXFMT_UPCASE_LEN - o < 512 ? (unsigned)(OFAT_EXFMT_UPCASE_LEN - o) : 512);
     } else if (!s) root_dir(b);
 }
 
-static void boot_sector(oa_u8 OA_FAR *b)
+static void boot_sector(ofat_u8 OFAT_FAR *b)
 {
-    oa_u32 used = F->sys_clusters + nbad;
+    ofat_u32 used = F->sys_clusters + nbad;
     fmemset(b, 0, 512);
     b[0] = 0xEB; b[1] = 0x76; b[2] = 0x90;
     fmemcpy(b + 3, "EXFAT   ", 8);
@@ -172,15 +172,15 @@ static void boot_sector(oa_u8 OA_FAR *b)
     b[109] = F->cshift;
     b[110] = F->nfats;
     b[111] = 0x80;
-    b[112] = (oa_u8)(used * 100 / F->clusters);
+    b[112] = (ofat_u8)(used * 100 / F->clusters);
     b[120] = 0xF4; b[121] = 0xEB; b[122] = 0xFD;    /* no boot code: hlt, jmp back */
     b[510] = 0x55; b[511] = 0xAA;
 }
 
 /* the boot region (12 sectors) at lba; nbuf >= 1 */
-static int boot_region(oa_exfmt_write_fn wr, void *dev, oa_u32 lba, oa_u8 OA_FAR *b)
+static int boot_region(ofat_exfmt_write_fn wr, void *dev, ofat_u32 lba, ofat_u8 OFAT_FAR *b)
 {
-    oa_u32 sum = 0;
+    ofat_u32 sum = 0;
     unsigned s, i;
     for (s = 0; s < 12; ++s) {
         if (!s) boot_sector(b);
@@ -196,7 +196,7 @@ static int boot_region(oa_exfmt_write_fn wr, void *dev, oa_u32 lba, oa_u8 OA_FAR
     return 0;
 }
 
-static int zeros(oa_exfmt_write_fn wr, void *dev, oa_u32 lba, oa_u32 n, oa_u8 OA_FAR *buf, unsigned nbuf)
+static int zeros(ofat_exfmt_write_fn wr, void *dev, ofat_u32 lba, ofat_u32 n, ofat_u8 OFAT_FAR *buf, unsigned nbuf)
 {
     unsigned k;
     fmemset(buf, 0, nbuf * 512);
@@ -207,16 +207,16 @@ static int zeros(oa_exfmt_write_fn wr, void *dev, oa_u32 lba, oa_u32 n, oa_u8 OA
     return 0;
 }
 
-int oa_exfmt_write(struct oa_exfmt *f, oa_exfmt_write_fn wr, void *dev,
-                   const oa_u32 *badlist, unsigned badcount, oa_u8 OA_FAR *buf, unsigned nbuf)
+int ofat_exfmt_write(struct ofat_exfmt *f, ofat_exfmt_write_fn wr, void *dev,
+                   const ofat_u32 *badlist, unsigned badcount, ofat_u8 OFAT_FAR *buf, unsigned nbuf)
 {
-    oa_u32 c, s, n, lba, spc = 1UL << f->cshift, csz = spc * 512;
+    ofat_u32 c, s, n, lba, spc = 1UL << f->cshift, csz = spc * 512;
     unsigned k, i, j;
     F = f; bad = badlist; nbad = badcount; bi = 0;
     /* the system files, one after the other round the bad clusters */
     size[0] = (f->bitmap_len + csz - 1) / csz;
     size[1] = f->nfats == 2 ? size[0] : 0;
-    size[2] = (OA_EXFMT_UPCASE_LEN + csz - 1) / csz;
+    size[2] = (OFAT_EXFMT_UPCASE_LEN + csz - 1) / csz;
     size[3] = 1;
     c = 2;
     for (k = 0; k < NFILES; ++k) {
