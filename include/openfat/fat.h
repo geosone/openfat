@@ -31,13 +31,13 @@
 #define OFAT_FAT_ARCH   0x20
 
 /* Reads or writes one sector (of 1 << sshift bytes) at lba of the device. */
-typedef int (*ofat_fat_read_fn)(void *dev, ofat_u32 lba, void OFAT_FAR *buf);
-typedef int (*ofat_fat_write_fn)(void *dev, ofat_u32 lba, const void OFAT_FAR *buf);
+typedef int (*ofat_fat_read_fn)(void *dev, ofat_lba lba, void OFAT_FAR *buf);
+typedef int (*ofat_fat_write_fn)(void *dev, ofat_lba lba, const void OFAT_FAR *buf);
 
 struct ofat_fat {
     ofat_fat_read_fn read;
     void *dev;
-    ofat_u32 start;             /* first sector of the volume on the device */
+    ofat_lba start;             /* first sector of the volume on the device */
     ofat_u32 fat, fat_size;     /* first sector of FAT 0, sectors per FAT */
     ofat_u32 root;              /* FAT12/16: first sector of the root directory;
                                    FAT32: its first cluster */
@@ -95,7 +95,7 @@ struct ofat_fat_ent {
 
 /* 12, 16 or 32 when the boot sector is one of a FAT volume, else 0. */
 int ofat_fat_probe(const ofat_u8 OFAT_FAR *boot);
-int ofat_fat_mount(struct ofat_fat *, ofat_fat_read_fn, void *dev, ofat_u32 start,
+int ofat_fat_mount(struct ofat_fat *, ofat_fat_read_fn, void *dev, ofat_lba start,
                    const struct ofat_cp *, ofat_u8 *buf);
 void ofat_fat_rootdir(const struct ofat_fat *, struct ofat_fat_file *);
 /* The directory whose first cluster is first (0: the root directory). */

@@ -27,6 +27,19 @@ typedef uint64_t ofat_u64; /* also under -std=c90: stdint.h declares it */
 typedef int64_t  ofat_s64;
 #endif
 
+/* Sector numbers and file sizes: 64 bits in 32/64-bit builds, 32 bits
+   under DOS (OpenWatcom, or OFAT_NARROW), where neither disks past 2 TiB
+   nor files of 4 GB and more are reachable and 64-bit arithmetic costs
+   code in resident drivers. */
+#if defined(__WATCOMC__) || defined(OFAT_NARROW)
+#define OFAT_NARROW 1
+typedef ofat_u32 ofat_lba;
+typedef ofat_u32 ofat_fsize;
+#else
+typedef ofat_u64 ofat_lba;
+typedef ofat_u64 ofat_fsize;
+#endif
+
 /* far data pointers of the 16-bit DOS memory models */
 #ifdef __WATCOMC__
 #define OFAT_FAR __far

@@ -21,14 +21,14 @@ static ofat_u8 sector_buf[OFAT_EXFAT_MAXSECT];
 static struct ofat_exfat_ent ent;
 static unsigned long writes;
 
-static int img_read(void *dev, ofat_u32 lba, void *buf)
+static int img_read(void *dev, ofat_lba lba, void *buf)
 {
     (void)dev;
     if (fseek(image, (long)lba * 512, SEEK_SET)) return -1;
     return fread(buf, 512, 1, image) == 1 ? 0 : -1;
 }
 
-static int img_write(void *dev, ofat_u32 lba, const void *buf)
+static int img_write(void *dev, ofat_lba lba, const void *buf)
 {
     (void)dev; ++writes;
     if (fseek(image, (long)lba * 512, SEEK_SET)) return -1;

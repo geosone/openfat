@@ -12,7 +12,8 @@
 #define fmemset memset
 #endif
 
-#define NOBUF 0xFFFFFFFFUL
+#define NOBUF ((ofat_lba)~(ofat_lba)0)    /* no sector in the buffer */
+#define NOCOUNT 0xFFFFFFFFUL                /* free clusters not counted */
 #define EOC 0xFFFFFFFFUL
 
 /* walk cache of the allocation bitmap */
@@ -24,7 +25,27 @@ static ofat_u32 rd32(const ofat_u8 OFAT_FAR *p) { return rd16(p) | (ofat_u32)rd1
 static void wr16(ofat_u8 *p, ofat_u16 v) { p[0] = (ofat_u8)v; p[1] = (ofat_u8)(v >> 8); }
 static void wr32(ofat_u8 *p, ofat_u32 v) { wr16(p, (ofat_u16)v); wr16(p+2, (ofat_u16)(v >> 16)); }
 
-static const ofat_u8 *sector(struct ofat_exfat *v, ofat_u32 lba)
+/* 64-bit lengths of the stream entry: whole, or cut at 4 GB when narrow */
+static ofat_fsize rdsize(const ofat_u8 *p)
+{
+#ifdef OFAT_NARROW
+    return rd32(p+4) ? 0xFFFFFFFFUL : rd32(p);
+#else
+    return rd32(p) | (ofat_fsize)rd32(p+4) << 32;
+#endif
+}
+
+static void wrsize(ofat_u8 *p, ofat_fsize v)
+{
+    wr32(p, (ofat_u32)v);
+#ifdef OFAT_NARROW
+    wr32(p+4, 0);
+#else
+    wr32(p+4, (ofat_u32)(v >> 32));
+#endif
+}
+
+static const ofat_u8 *sector(struct ofat_exfat *v, ofat_lba lba)
 {
     if (v->buf_lba != lba) {
         v->buf_lba = NOBUF;
@@ -74,20 +95,20 @@ static int walk(struct ofat_exfat *v, struct ofat_exfat_file *f, ofat_u32 idx, o
 }
 
 /* The sector holding byte off of a file or directory. */
-static int file_sector(struct ofat_exfat *v, struct ofat_exfat_file *f, ofat_u32 off, ofat_u32 *lba)
+static int file_sector(struct ofat_exfat *v, struct ofat_exfat_file *f, ofat_fsize off, ofat_lba *lba)
 {
     ofat_u32 clu;
     unsigned shift = v->sshift + v->cshift;
-    int r = walk(v, f, off >> shift, &clu);
+    int r = walk(v, f, (ofat_u32)(off >> shift), &clu);
     if (r) return r;
-    *lba = v->heap + ((clu - 2) << v->cshift) + ((off >> v->sshift) & ((1UL << v->cshift) - 1));
+    *lba = v->heap + ((ofat_lba)(clu - 2) << v->cshift) + (ofat_u32)((off >> v->sshift) & ((1UL << v->cshift) - 1));
     return OFAT_EXFAT_OK;
 }
 
 /* The 32-byte directory entry at byte pos of a directory. */
 static int dir_entry(struct ofat_exfat *v, struct ofat_exfat_file *d, ofat_u32 pos, const ofat_u8 **e)
 {
-    ofat_u32 lba;
+    ofat_lba lba;
     const ofat_u8 *s;
     int r;
     if (!d->root && pos >= d->size) return OFAT_EXFAT_END;
@@ -104,16 +125,17 @@ void ofat_exfat_rootdir(const struct ofat_exfat *v, struct ofat_exfat_file *f)
     f->first = v->root; f->root = 1;
 }
 
-int ofat_exfat_mount(struct ofat_exfat *v, ofat_exfat_read_fn read, void *dev, ofat_u32 start, const struct ofat_cp *cp, ofat_u8 *buf)
+int ofat_exfat_mount(struct ofat_exfat *v, ofat_exfat_read_fn read, void *dev, ofat_lba start, const struct ofat_cp *cp, ofat_u8 *buf)
 {
     const ofat_u8 *b;
     struct ofat_exfat_file root;
-    ofat_u32 pos, len;
+    ofat_u32 pos;
+    ofat_lba len;
     unsigned i, active;
     int r;
     memset(v, 0, sizeof(*v));
     v->read = read; v->dev = dev; v->start = start; v->cp = cp; v->buf = buf; v->buf_lba = NOBUF;
-    v->free = NOBUF;
+    v->free = NOCOUNT;
     bm_owner = 0;
     if (read(dev, start, v->buf)) return OFAT_EXFAT_EIO;
     b = v->buf;
@@ -121,8 +143,7 @@ int ofat_exfat_mount(struct ofat_exfat *v, ofat_exfat_read_fn read, void *dev, o
     v->sshift = b[108]; v->cshift = b[109];
     if (v->sshift < 9 || v->sshift > 12 || v->cshift > 25 - v->sshift) return OFAT_EXFAT_EBAD;
     if ((1u << v->sshift) > OFAT_EXFAT_MAXSECT) return OFAT_EXFAT_ESIZE;
-    len = rd32(b+72);
-    if (rd32(b+76)) len = 0xFFFFFFFFUL;
+    len = (ofat_lba)rdsize(b+72);           /* VolumeLength */
     v->fat = rd32(b+80); v->heap = rd32(b+88); v->clusters = rd32(b+92);
     v->root = rd32(b+96); v->serial = rd32(b+100); v->flags = rd16(b+106);
     if (b[110] != 1 && b[110] != 2) return OFAT_EXFAT_EBAD;
@@ -132,7 +153,7 @@ int ofat_exfat_mount(struct ofat_exfat *v, ofat_exfat_read_fn read, void *dev, o
     if (active) v->fat += rd32(b+84);
     if (v->flags & 2) v->dirty = 2;     /* not ours to clear */
     if (v->fat < 24 || v->heap < v->fat || !v->clusters || v->clusters > 0xFFFFFFF5UL ||
-        (ofat_u32)(v->heap + (v->clusters << v->cshift)) > len ||
+        v->heap + ((ofat_lba)v->clusters << v->cshift) > len ||
         rd32(b+84) < ((v->clusters + 2) >> (v->sshift - 2)) ||
         v->root < 2 || v->root >= v->clusters + 2) return OFAT_EXFAT_EBAD;
     /* the root directory: allocation bitmap and volume label */
@@ -163,9 +184,10 @@ static void stream_file(const ofat_u8 *e, struct ofat_exfat_file *f)
     memset(f, 0, sizeof(*f));
     f->nofat = (e[1] & 2) != 0;
     f->first = rd32(e+20);
-    f->size = rd32(e+24); f->valid = rd32(e+8);
-    if (rd32(e+28)) { f->big = 1; f->size = 0xFFFFFFFFUL; }
-    if (rd32(e+12)) f->valid = 0xFFFFFFFFUL;
+    f->size = rdsize(e+24); f->valid = rdsize(e+8);
+#ifdef OFAT_NARROW
+    if (rd32(e+28)) f->big = 1;
+#endif
     if (f->valid > f->size) f->valid = f->size;
 }
 
@@ -217,11 +239,11 @@ int ofat_exfat_dir_next(struct ofat_exfat *v, struct ofat_exfat_file *d, ofat_u3
     }
 }
 
-int ofat_exfat_read(struct ofat_exfat *v, struct ofat_exfat_file *f, ofat_u32 off, void OFAT_FAR *buf, ofat_u16 len, ofat_u16 *done)
+int ofat_exfat_read(struct ofat_exfat *v, struct ofat_exfat_file *f, ofat_fsize off, void OFAT_FAR *buf, ofat_u16 len, ofat_u16 *done)
 {
     ofat_u8 OFAT_FAR *out = (ofat_u8 OFAT_FAR *)buf;
     unsigned ssize = 1u << v->sshift, in, n;
-    ofat_u32 lba;
+    ofat_lba lba;
     const ofat_u8 *s;
     int r;
     *done = 0;
@@ -253,7 +275,8 @@ int ofat_exfat_read(struct ofat_exfat *v, struct ofat_exfat_file *f, ofat_u32 of
 int ofat_exfat_free(struct ofat_exfat *v, ofat_u32 *free_clusters)
 {
     struct ofat_exfat_file bm;
-    ofat_u32 bit, lba;
+    ofat_u32 bit;
+    ofat_lba lba;
     const ofat_u8 *s;
     unsigned bits = 8u << v->sshift, i;
     ofat_u8 c;
@@ -335,7 +358,7 @@ static int flush(struct ofat_exfat *v)
 }
 
 /* the cached sector also at lba: the TexFAT copy */
-static int mirror(struct ofat_exfat *v, ofat_u32 lba)
+static int mirror(struct ofat_exfat *v, ofat_lba lba)
 {
     return v->write(v->dev, v->start + lba, v->buf) ? OFAT_EXFAT_EWRITE : OFAT_EXFAT_OK;
 }
@@ -361,7 +384,7 @@ int ofat_exfat_clean(struct ofat_exfat *v)
     if (v->dirty != 1) return OFAT_EXFAT_OK;
     if (!(s = (ofat_u8 *)sector(v, 0))) return OFAT_EXFAT_EIO;
     s[106] &= ~2;
-    if (v->free != NOBUF) {
+    if (v->free != NOCOUNT) {
         used = v->clusters - v->free;
         s[112] = (ofat_u8)(v->clusters > 0x1000000UL ? (used >> 8) * 100 / (v->clusters >> 8)
                                                    : used * 100 / v->clusters);
@@ -371,7 +394,7 @@ int ofat_exfat_clean(struct ofat_exfat *v)
 }
 
 /* the sector of a bit of an allocation bitmap */
-static int bitmap_lba(struct ofat_exfat *v, ofat_u32 first, ofat_u32 bit, ofat_u32 *lba)
+static int bitmap_lba(struct ofat_exfat *v, ofat_u32 first, ofat_u32 bit, ofat_lba *lba)
 {
     if (bm_owner != v || bm_file.first != first) {
         memset(&bm_file, 0, sizeof(bm_file));
@@ -382,7 +405,8 @@ static int bitmap_lba(struct ofat_exfat *v, ofat_u32 first, ofat_u32 bit, ofat_u
 
 static int set_bit(struct ofat_exfat *v, ofat_u32 clu, int on)
 {
-    ofat_u32 bit = clu - 2, lba, lba2 = 0;
+    ofat_u32 bit = clu - 2;
+    ofat_lba lba, lba2 = 0;
     ofat_u8 *s, m = (ofat_u8)(1 << (bit & 7));
     unsigned at = (unsigned)(bit >> 3) & ((1u << v->sshift) - 1);
     int r;
@@ -391,14 +415,15 @@ static int set_bit(struct ofat_exfat *v, ofat_u32 clu, int on)
     if (!(s = (ofat_u8 *)sector(v, lba))) return OFAT_EXFAT_EIO;
     if (on) s[at] |= m; else s[at] &= (ofat_u8)~m;
     if ((r = flush(v)) != 0 || (lba2 && (r = mirror(v, lba2)) != 0)) return r;
-    if (v->free != NOBUF) { if (on) --v->free; else ++v->free; }
+    if (v->free != NOCOUNT) { if (on) --v->free; else ++v->free; }
     return OFAT_EXFAT_OK;
 }
 
 /* A free cluster, from want on (else from the hint), marked in the bitmap. */
 static int alloc(struct ofat_exfat *v, ofat_u32 want, ofat_u32 *clu)
 {
-    ofat_u32 n, bit, lba, bits = 8UL << v->sshift;
+    ofat_u32 n, bit, bits = 8UL << v->sshift;
+    ofat_lba lba;
     const ofat_u8 *s;
     unsigned at;
     int r;
@@ -443,7 +468,7 @@ static int nclusters(struct ofat_exfat *v, struct ofat_exfat_file *f, ofat_u32 *
     int r;
     if (f->first < 2) { *n = 0; return OFAT_EXFAT_OK; }
     if (!f->root) {
-        *n = (f->size >> CB(v)) + ((f->size & ((1UL << CB(v)) - 1)) != 0);
+        *n = (ofat_u32)(f->size >> CB(v)) + ((f->size & ((1UL << CB(v)) - 1)) != 0);
         return OFAT_EXFAT_OK;
     }
     for (*n = f->idx; ; ++*n) {
@@ -453,10 +478,14 @@ static int nclusters(struct ofat_exfat *v, struct ofat_exfat_file *f, ofat_u32 *
     }
 }
 
-/* bytes in n clusters, at most 0FFFFFFFFh */
-static ofat_u32 bytes_of(struct ofat_exfat *v, ofat_u32 n)
+/* bytes in n clusters (narrow: at most 0FFFFFFFFh) */
+static ofat_fsize bytes_of(struct ofat_exfat *v, ofat_u32 n)
 {
+#ifdef OFAT_NARROW
     return n >> (32 - CB(v)) ? 0xFFFFFFFFUL : n << CB(v);
+#else
+    return (ofat_fsize)n << CB(v);
+#endif
 }
 
 /* *n clusters to want: contiguous (NoFatChain) while the next cluster is
@@ -473,7 +502,7 @@ static int grow(struct ofat_exfat *v, struct ofat_exfat_file *f, ofat_u32 *n, of
             v->buf_lba = NOBUF;
             memset(v->buf, 0, 1u << v->sshift);
             for (k = 0; k < 1UL << v->cshift; ++k)
-                if (v->write(v->dev, v->start + v->heap + ((clu - 2) << v->cshift) + k, v->buf))
+                if (v->write(v->dev, v->start + v->heap + ((ofat_lba)(clu - 2) << v->cshift) + k, v->buf))
                     return OFAT_EXFAT_EWRITE;
         }
         if (!*n) { f->first = clu; f->nofat = (ofat_u8)!f->root; f->idx = 0; f->clu = clu; }
@@ -588,9 +617,9 @@ static int put_stream(struct ofat_exfat *v, const struct ofat_exfat_where *w, co
     ofat_exfat_where_dir(w, &dir);
     if ((r = get_set(v, &dir, w->pos, &n)) != 0) return r;
     se[1] = (ofat_u8)((se[1] & ~2) | 1 | (f->nofat ? 2 : 0));
-    wr32(se+8, f->valid); wr32(se+12, 0);
+    wrsize(se+8, f->valid);
     wr32(se+20, f->first);
-    wr32(se+24, f->size); wr32(se+28, 0);
+    wrsize(se+24, f->size);
     return put_set(v, &dir, w->pos);
 }
 
@@ -705,11 +734,13 @@ static int unmark(struct ofat_exfat *v, struct ofat_exfat_file *d, ofat_u32 pos,
 }
 
 int ofat_exfat_write(struct ofat_exfat *v, struct ofat_exfat_file *f, const struct ofat_exfat_where *w,
-                   ofat_u32 off, const void OFAT_FAR *buf, ofat_u16 len, ofat_u16 *done)
+                   ofat_fsize off, const void OFAT_FAR *buf, ofat_u16 len, ofat_u16 *done)
 {
     const ofat_u8 OFAT_FAR *in = (const ofat_u8 OFAT_FAR *)buf;
     unsigned ssize = 1u << v->sshift, at, a, b;
-    ofat_u32 end, have, need, pos, lba, sbeg;
+    ofat_fsize end, pos, sbeg;
+    ofat_u32 have, need;
+    ofat_lba lba;
     ofat_u8 *s;
     int r, full = 0;
     *done = 0;
@@ -717,9 +748,10 @@ int ofat_exfat_write(struct ofat_exfat *v, struct ofat_exfat_file *f, const stru
     if (!len) return OFAT_EXFAT_OK;
     if ((r = begin(v)) != 0) return r;
     end = off + len;
-    if (end < off) end = 0xFFFFFFFFUL;          /* 4 GB */
+    if (end < off) end = (ofat_fsize)~(ofat_fsize)0;   /* narrow: 4 GB */
     if ((r = nclusters(v, f, &have)) != 0) return r;
-    need = (end >> CB(v)) + ((end & ((1UL << CB(v)) - 1)) != 0);
+    if ((end - 1) >> CB(v) >= v->clusters) return OFAT_EXFAT_EFULL;
+    need = (ofat_u32)(end >> CB(v)) + ((end & ((1UL << CB(v)) - 1)) != 0);
     if (need > have) {
         r = grow(v, f, &have, need, 0);
         if (r == OFAT_EXFAT_EFULL) {
@@ -759,14 +791,15 @@ int ofat_exfat_write(struct ofat_exfat *v, struct ofat_exfat_file *f, const stru
     return full ? OFAT_EXFAT_EFULL : OFAT_EXFAT_OK;
 }
 
-int ofat_exfat_resize(struct ofat_exfat *v, struct ofat_exfat_file *f, const struct ofat_exfat_where *w, ofat_u32 size)
+int ofat_exfat_resize(struct ofat_exfat *v, struct ofat_exfat_file *f, const struct ofat_exfat_where *w, ofat_fsize size)
 {
     ofat_u32 have, need, n;
     int r;
     if (f->big) return OFAT_EXFAT_EBAD;
     if ((r = begin(v)) != 0) return r;
     if ((r = nclusters(v, f, &have)) != 0) return r;
-    need = (size >> CB(v)) + ((size & ((1UL << CB(v)) - 1)) != 0);
+    if (size && (size - 1) >> CB(v) >= v->clusters) return OFAT_EXFAT_EFULL;
+    need = (ofat_u32)(size >> CB(v)) + ((size & ((1UL << CB(v)) - 1)) != 0);
     if (need > have) {
         n = have;
         if ((r = grow(v, f, &n, need, 0)) != 0) { shrink(v, f, n, have); return r; }
@@ -792,7 +825,7 @@ int ofat_exfat_create(struct ofat_exfat *v, struct ofat_exfat_file *dir, struct 
     wr16(fe+4, attr);
     wr32(fe+8, ts); wr32(fe+12, ts); wr32(fe+16, ts);
     se[1] = (ofat_u8)(1 | (f.nofat ? 2 : 0));
-    wr32(se+8, f.valid); wr32(se+20, f.first); wr32(se+24, f.size);
+    wrsize(se+8, f.valid); wr32(se+20, f.first); wrsize(se+24, f.size);
     r = place(v, dir, dw, name, len, pos);
     if (r && f.first) shrink(v, &f, 1, 0);
     return r;

@@ -18,9 +18,10 @@
 struct ofat_exchk {
     /* set by the caller */
     ofat_exfat_read_fn read;              /* sectors of the device */
-    int (*write)(void *dev, ofat_u32 lba, const void OFAT_FAR *buf);  /* 0: report only */
+    ofat_exfat_write_fn write;            /* 0: report only */
     void *dev;
-    ofat_u32 start;                       /* first sector of the volume */
+    ofat_u32 start;                       /* first sector of the volume (the check
+                                             reaches 2^32 sectors from it) */
     const struct ofat_cp *cp;       /* for the names in messages */
     void (*msg)(void *ctx, int level, const char *text);
     int (*mark)(void *ctx, ofat_u32 bit); /* sets a bit, returns the old one */

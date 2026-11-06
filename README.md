@@ -19,6 +19,13 @@ GonWare.
 | FAT check | `src/fat/fat_check.c` | checking and repairing FAT12/16/32 after the rules of fsck.fat |
 | FAT defrag | `src/fat/fat_defrag.c` | defragmenting FAT12/16/32, in a write order that survives power loss |
 
+Sector numbers (`ofat_lba`) and file sizes (`ofat_fsize`) have 64 bits in
+32/64-bit builds: exFAT volumes past 2 TiB, files of 4 GiB and more, FAT and
+exFAT volumes anywhere on large disks. Under DOS (OpenWatcom, or
+`OFAT_NARROW`) they have 32 bits, which keeps the resident drivers small;
+exFAT files of 4 GiB and more are then read-only. The check, format and
+defragmentation code still reaches 2^32 sectors of a volume.
+
 All names start with `ofat_` (`OFAT_` for constants); `include/openfat/types.h`
 gives the fixed-width types.
 

@@ -13,7 +13,7 @@ SRC      := $(wildcard src/*.c src/*/*.c)
 H        := $(BUILD)/host
 
 TESTBINS := $(H)/test_exfat $(H)/test_exfat_write $(H)/test_exchk $(H)/test_exfmt \
-	$(H)/test_fatchk $(H)/test_defrag $(H)/test_fat_format $(H)/test_part $(H)/test_fat_write
+	$(H)/test_fatchk $(H)/test_defrag $(H)/test_fat_format $(H)/test_part $(H)/test_fat_write $(H)/test_exfat_big
 
 .PHONY: all test check dos-check clean
 all: $(TESTBINS)
@@ -32,9 +32,11 @@ check: all test dos-check
 	bash tests/exchk_host.sh
 	bash tests/exfmt_host.sh
 	bash tests/exfat_write.sh
+	bash tests/exfat_big.sh
 
 $(H)/test_exfat: tests/exfat_test.c $(EXFAT) $(HDR)
 $(H)/test_exfat_write: tests/exfat_write_test.c $(EXFAT) $(HDR)
+$(H)/test_exfat_big: tests/exfat_big_test.c $(EXFAT) $(HDR)
 $(H)/test_exchk: tests/exchk_test.c src/exfat/exfat_check.c $(EXFAT) $(HDR)
 $(H)/test_exfmt: tests/exfmt_test.c src/exfat/exfat_format.c src/exfat/upcase.c $(HDR)
 $(H)/test_fatchk: tests/fatchk_test.c src/fat/fat_check.c src/codepage.c $(HDR)
@@ -43,6 +45,9 @@ $(H)/test_fat_format: tests/fat_format_test.c src/fat/fat_format.c $(HDR)
 $(H)/test_fat_write: tests/fat_write_test.c $(FATSRC) $(HDR)
 $(H)/test_part: tests/part_test.c src/part/part.c $(HDR)
 $(H)/test_fat_write: CPPFLAGS += -DOFAT_FAT_MAXSECT=4096
+$(H)/test_exfat_big: CPPFLAGS += -DOFAT_EXFAT_MAXSECT=4096
+# a host program with 64-bit printf (the library is checked as C90 elsewhere)
+$(H)/test_exfat_big: CFLAGS := $(subst -std=c90,-std=c99,$(CFLAGS))
 $(TESTBINS):
 	mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(filter %.c,$^)

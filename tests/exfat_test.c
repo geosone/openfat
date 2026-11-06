@@ -12,7 +12,7 @@
 static FILE *image;
 static unsigned long reads;
 
-static int img_read(void *dev, ofat_u32 lba, void *buf)
+static int img_read(void *dev, ofat_lba lba, void *buf)
 {
     (void)dev; ++reads;
     if (fseek(image, (long)lba * 512, SEEK_SET)) return -1;

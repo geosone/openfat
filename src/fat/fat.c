@@ -195,7 +195,7 @@ int ofat_fat_probe(const ofat_u8 OFAT_FAR *boot)
     return geometry(boot, &v);
 }
 
-int ofat_fat_mount(struct ofat_fat *v, ofat_fat_read_fn read, void *dev, ofat_u32 start,
+int ofat_fat_mount(struct ofat_fat *v, ofat_fat_read_fn read, void *dev, ofat_lba start,
                    const struct ofat_cp *cp, ofat_u8 *buf)
 {
     const ofat_u8 *b, *l;

@@ -28,14 +28,14 @@
 
 
 /* Reads one sector (of 1 << sshift bytes) at lba of the device. */
-typedef int (*ofat_exfat_read_fn)(void *dev, ofat_u32 lba, void OFAT_FAR *buf);
+typedef int (*ofat_exfat_read_fn)(void *dev, ofat_lba lba, void OFAT_FAR *buf);
 /* Writes one sector at lba of the device. */
-typedef int (*ofat_exfat_write_fn)(void *dev, ofat_u32 lba, const void OFAT_FAR *buf);
+typedef int (*ofat_exfat_write_fn)(void *dev, ofat_lba lba, const void OFAT_FAR *buf);
 
 struct ofat_exfat {
     ofat_exfat_read_fn read;
     void *dev;
-    ofat_u32 start;               /* first sector of the volume on the device */
+    ofat_lba start;               /* first sector of the volume on the device */
     ofat_u32 fat, heap, clusters, root, serial;
     ofat_u32 bitmap;              /* first cluster of the allocation bitmap */
     ofat_u16 flags;               /* VolumeFlags */
@@ -43,7 +43,7 @@ struct ofat_exfat {
     ofat_u8 label_len;
     ofat_u16 label[11];
     const struct ofat_cp *cp;
-    ofat_u32 buf_lba;             /* sector in buf, or 0xFFFFFFFF */
+    ofat_lba buf_lba;             /* sector in buf, or all ones */
     ofat_u8 *buf;                 /* OFAT_EXFAT_MAXSECT bytes; volumes may share
                                    one when they set buf_lba to 0xFFFFFFFF
                                    after another one used it */
@@ -59,17 +59,20 @@ struct ofat_exfat {
 
 /* A file or directory: its cluster chain and the cluster last walked to. */
 struct ofat_exfat_file {
-    ofat_u32 first, size, valid;  /* size and valid data length, cut at 4 GB */
+    ofat_u32 first;
+    ofat_fsize size, valid;       /* size and valid data length (cut at 4 GB
+                                     when narrow) */
     ofat_u32 idx, clu;            /* cluster index and number last walked to */
     ofat_u8 nofat;                /* contiguous, no FAT chain */
-    ofat_u8 big;                  /* 4 GB or larger */
+    ofat_u8 big;                  /* narrow: 4 GB or larger, read-only */
     ofat_u8 root;                 /* root directory: size from the chain */
 };
 
 /* Where the entry set of a file or directory is: the directory (as in
    struct ofat_exfat_file) and the offset in it; none for the root directory. */
 struct ofat_exfat_where {
-    ofat_u32 first, size, pos;
+    ofat_u32 first, pos;
+    ofat_fsize size;
     ofat_u8 nofat, none;
 };
 
@@ -82,10 +85,10 @@ struct ofat_exfat_ent {
 };
 
 int ofat_exfat_probe(const ofat_u8 OFAT_FAR *boot);
-int ofat_exfat_mount(struct ofat_exfat *, ofat_exfat_read_fn, void *dev, ofat_u32 start, const struct ofat_cp *, ofat_u8 *buf);
+int ofat_exfat_mount(struct ofat_exfat *, ofat_exfat_read_fn, void *dev, ofat_lba start, const struct ofat_cp *, ofat_u8 *buf);
 void ofat_exfat_rootdir(const struct ofat_exfat *, struct ofat_exfat_file *);
 int ofat_exfat_dir_next(struct ofat_exfat *, struct ofat_exfat_file *dir, ofat_u32 *pos, struct ofat_exfat_ent *);
-int ofat_exfat_read(struct ofat_exfat *, struct ofat_exfat_file *, ofat_u32 off, void OFAT_FAR *buf, ofat_u16 len, ofat_u16 *done);
+int ofat_exfat_read(struct ofat_exfat *, struct ofat_exfat_file *, ofat_fsize off, void OFAT_FAR *buf, ofat_u16 len, ofat_u16 *done);
 int ofat_exfat_free(struct ofat_exfat *, ofat_u32 *free_clusters);
 
 /* Writing.  dir is a directory as given by ofat_exfat_rootdir or by an entry
@@ -98,9 +101,9 @@ void ofat_exfat_where_dir(const struct ofat_exfat_where *, struct ofat_exfat_fil
 /* Writes len bytes at off, from valid on with zeros before off; the file
    grows.  *done may be less than len: OFAT_EXFAT_EFULL. */
 int ofat_exfat_write(struct ofat_exfat *, struct ofat_exfat_file *, const struct ofat_exfat_where *,
-                   ofat_u32 off, const void OFAT_FAR *buf, ofat_u16 len, ofat_u16 *done);
+                   ofat_fsize off, const void OFAT_FAR *buf, ofat_u16 len, ofat_u16 *done);
 /* The size: shorter frees clusters, longer allocates them (read as zeros). */
-int ofat_exfat_resize(struct ofat_exfat *, struct ofat_exfat_file *, const struct ofat_exfat_where *, ofat_u32 size);
+int ofat_exfat_resize(struct ofat_exfat *, struct ofat_exfat_file *, const struct ofat_exfat_where *, ofat_fsize size);
 /* A new empty file, or with OFAT_EXFAT_DIR a directory with one cluster;
    *pos its entry set. */
 int ofat_exfat_create(struct ofat_exfat *, struct ofat_exfat_file *dir, struct ofat_exfat_where *dw,
