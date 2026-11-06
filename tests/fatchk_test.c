@@ -10,19 +10,20 @@
 
 static FILE *image;
 static unsigned char *bits;
+static unsigned ssize = 512;            /* from the boot sector */
 
 static int img_read(void *dev, ofat_u32 lba, void *buf)
 {
     (void)dev;
-    if (fseek(image, (long)lba * 512, SEEK_SET)) return -1;
-    return fread(buf, 512, 1, image) == 1 ? 0 : -1;
+    if (fseek(image, (long)lba * ssize, SEEK_SET)) return -1;
+    return fread(buf, ssize, 1, image) == 1 ? 0 : -1;
 }
 
 static int img_write(void *dev, ofat_u32 lba, const void *buf)
 {
     (void)dev;
-    if (fseek(image, (long)lba * 512, SEEK_SET)) return -1;
-    return fwrite(buf, 512, 1, image) == 1 ? 0 : -1;
+    if (fseek(image, (long)lba * ssize, SEEK_SET)) return -1;
+    return fwrite(buf, ssize, 1, image) == 1 ? 0 : -1;
 }
 
 static void msg(void *ctx, int level, const char *text)
@@ -54,6 +55,16 @@ int main(int argc, char **argv)
     memset(&c, 0, sizeof(c));
     c.read = img_read; c.cp = ofat_cp850.uni; c.msg = msg; c.mark = mark; c.clear = clear;
     c.start = argc > 2 ? strtoul(argv[2], NULL, 0) : 0;
+    {   /* the sector size of the volume (LBA in 512-byte units until known) */
+        unsigned char b[512];
+        unsigned bps;
+        if (fseek(image, (long)c.start * 512, SEEK_SET) || fread(b, 512, 1, image) != 1) return 2;
+        bps = (unsigned)(b[11] | b[12] << 8);
+        if (bps >= 512 && bps <= OFAT_FATCHK_MAXSECT && !(bps & (bps - 1))) {
+            ssize = bps;
+            c.start = c.start * 512 / ssize;
+        }
+    }
     window = argc > 3 && strtoul(argv[3], NULL, 0) ? strtoul(argv[3], NULL, 0) : 1UL << 28;
     if (fix) c.write = img_write;
     c.window = window;

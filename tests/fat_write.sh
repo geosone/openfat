@@ -32,10 +32,7 @@ run() {   # name size-MB bits [mkfs-options [FULL|ROOTFULL]]
     "$ROOT/build/host/test_fat_write" "$dir/fat.img" "$dir/mirror" ${5:-} > "$dir/test.txt" ||
         { cat "$dir/test.txt"; echo "$1: test_fat_write failed"; exit 1; }
     fsck.fat -n "$dir/fat.img" > "$dir/fsck.txt" 2>&1 || { cat "$dir/fsck.txt"; echo "$1: fsck.fat finds errors"; exit 1; }
-    # (the host program of the FAT check reads 512-byte sectors only)
-    case "${4:-}" in *"-S 4096"*) ;; *)
-        "$ROOT/build/host/test_fatchk" "$dir/fat.img" > "$dir/fatchk.txt" || { cat "$dir/fatchk.txt"; echo "$1: test_fatchk finds errors"; exit 1; } ;;
-    esac
+    "$ROOT/build/host/test_fatchk" "$dir/fat.img" > "$dir/fatchk.txt" || { cat "$dir/fatchk.txt"; echo "$1: test_fatchk finds errors"; exit 1; }
     compare "$dir/fat.img" "$dir/mirror" || { echo "$1: the Linux driver reads another tree"; exit 1; }
     echo "$1 passed: $(tail -1 "$dir/test.txt")"
 }
