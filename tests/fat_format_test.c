@@ -30,6 +30,24 @@ int main(int argc,char **argv)
     assert(!ofat_fat_layout32(&f,196608,0));
     assert(f.bits==32 && f.clusters>=65525 && f.reserved==32 && f.root_entries==0);
     assert(ofat_fat_layout32(&f,2880,0));
+    /* FAT32 past 2 GiB up to 2^32-1 sectors, cluster sizes by fatgen103 */
+    {
+        static const ofat_u32 big[]={4194304UL,16777216UL,33554432UL,67108864UL,268435456UL,0xFFFFFFFFUL};
+        static const unsigned spc[]={8,8,16,32,64,64};
+        for(i=0;i<sizeof(big)/sizeof(big[0]);++i) {
+            assert(!ofat_fat_layout32(&f,big[i],0));
+            assert(f.bits==32 && f.spc==spc[i]);
+            assert(f.clusters>=65525 && f.clusters<0x0FFFFFF5UL);
+            data=f.sectors-f.reserved-2UL*f.fat_sectors;
+            assert(f.clusters==data/f.spc);
+            assert((f.clusters+2)/128+((f.clusters+2)%128!=0)<=f.fat_sectors);
+            ofat_fat_boot(&f,1,b);
+            assert(b[13]==f.spc && (b[36]|b[37]<<8|(ofat_u32)b[38]<<16|(ofat_u32)b[39]<<24)==f.fat_sectors);
+            assert((b[32]|b[33]<<8|(ofat_u32)b[34]<<16|(ofat_u32)b[35]<<24)==big[i]);
+        }
+        assert(ofat_fat_layout(&f,4194304UL,0));     /* FAT16 still ends there */
+        assert(ofat_fat_layout32(&f,0xFFFFFFFFUL,1)); /* hidden + total overflow */
+    }
     memset(b,0,sizeof(b)); b[1]=0xA0;
     assert(ofat_fat_mark_bad(12,2,b)==1 && b[0]==0xF7 && b[1]==0xAF);
     assert(ofat_fat_mark_bad(12,2,b)==0);

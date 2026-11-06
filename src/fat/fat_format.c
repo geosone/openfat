@@ -19,7 +19,9 @@ static int layout(struct ofat_fat_layout *f, ofat_u32 total, ofat_u32 hidden,uns
 {
     ofat_u32 data, clusters, needed, fat;
     unsigned spc, pass;
-    if (total < 128 || total > 4194303UL || hidden > 0xFFFFFFFFUL-total) return -1;
+    /* FAT12/16 end at 65524 clusters of 64 sectors; FAT32 at 2^32-1
+     * sectors, the BPB's sector count */
+    if (total < 128 || (bits != 32 && total > 4194303UL) || hidden > 0xFFFFFFFFUL-total) return -1;
     memset(f, 0, sizeof(*f)); f->sectors = total; f->hidden = hidden;
     f->bits = (ofat_u8)(bits ? bits : total < 8400UL ? 12 : 16);
     f->reserved = f->bits==32 ? 32 : 1;
@@ -37,7 +39,13 @@ static int layout(struct ofat_fat_layout *f, ofat_u32 total, ofat_u32 hidden,uns
     f->spt = total == 1440UL ? 9 : total == 2880UL ? 18 : total == 5760UL ? 36 : 32;
     f->heads = total <= 5760UL ? 2 : 8;
     f->media = total == 1440UL ? 0xF9 : total <= 5760UL ? 0xF0 : 0xF8;
-    for (spc = 1; spc <= 64; spc *= 2) {
+    /* FAT32 starts at the cluster size of fatgen103's table (for 512-byte
+     * sectors): a smaller one would give a needlessly large FAT */
+    spc = 1;
+    if (f->bits == 32)
+        spc = total <= 532480UL ? 1 : total <= 16777216UL ? 8 : total <= 33554432UL ? 16 :
+              total <= 67108864UL ? 32 : 64;
+    for (; spc <= 64; spc *= 2) {
         fat = 1;
         for (pass = 0; pass < 32; ++pass) {
             if (f->reserved + 2*fat + f->root_sectors >= total) break;
@@ -53,7 +61,7 @@ static int layout(struct ofat_fat_layout *f, ofat_u32 total, ofat_u32 hidden,uns
                 if ((f->bits == 12 && clusters >= 1 && clusters < 4085) ||
                     (f->bits == 16 && clusters >= 4085 && clusters < 65525) ||
                     (f->bits == 32 && clusters >= 65525 && clusters < 0x0FFFFFF5UL)) {
-                    f->spc = (ofat_u8)spc; f->fat_sectors = (ofat_u16)fat;
+                    f->spc = (ofat_u8)spc; f->fat_sectors = fat;
                     f->clusters = clusters; return 0;
                 }
                 break;
@@ -82,7 +90,7 @@ void ofat_fat_boot(const struct ofat_fat_layout *f, ofat_u32 serial, unsigned ch
     le16(b+14, f->reserved); b[16]=2; le16(b+17, f->root_entries);
     if (f->bits!=32 && f->sectors <= 65535UL) le16(b+19, (ofat_u16)f->sectors);
     else le32(b+32, f->sectors);
-    b[21]=f->media; le16(b+22, f->fat_sectors);
+    b[21]=f->media; le16(b+22, (ofat_u16)f->fat_sectors);
     le16(b+24, f->spt); le16(b+26, f->heads); le32(b+28, f->hidden);
     b[36]=0x80; b[38]=0x29; le32(b+39, serial);
     memcpy(b+43, "NO NAME    ", 11); memcpy(b+54, f->bits==12 ? "FAT12   " : "FAT16   ", 8);

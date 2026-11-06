@@ -14,13 +14,15 @@
  * root area, and FAT32 instead allocates cluster 2 to its root directory.
  */
 struct ofat_fat_layout {
-    ofat_u32 sectors, hidden, clusters;
-    ofat_u16 fat_sectors, root_entries, root_sectors, heads, spt, reserved;
+    ofat_u32 sectors, hidden, clusters, fat_sectors;
+    ofat_u16 root_entries, root_sectors, heads, spt, reserved;
     ofat_u8 bits, spc, media;
 };
-/* Calculate FAT12/16 geometry automatically for the supported bounded size;
- * layout32 explicitly requests FAT32. Failure may leave partial fields, so do
- * not call generators until a layout function returned zero.
+/* Calculate FAT12/16 geometry automatically (up to 4194303 sectors, 2 GiB);
+ * layout32 explicitly requests FAT32, from 65525 clusters up to 2^32-1
+ * sectors (2 TiB), with the cluster sizes of Microsoft's FAT specification
+ * (fatgen103) as the smallest. Failure may leave partial fields, so do not
+ * call generators until a layout function returned zero.
  */
 int ofat_fat_layout(struct ofat_fat_layout *, ofat_u32 sectors, ofat_u32 hidden);
 int ofat_fat_layout32(struct ofat_fat_layout *, ofat_u32 sectors, ofat_u32 hidden);
