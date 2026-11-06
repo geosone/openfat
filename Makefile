@@ -7,12 +7,12 @@ CFLAGS  ?= -std=c90 -Wall -Wextra -Werror -pedantic -O2
 CPPFLAGS += -Iinclude
 
 HDR      := $(wildcard include/openfat/*.h)
-EXFAT    := src/exfat/exfat.c src/exfat/codepage.c
-SRC      := $(wildcard src/*/*.c)
+EXFAT    := src/exfat/exfat.c src/codepage.c src/name83.c
+SRC      := $(wildcard src/*.c src/*/*.c)
 H        := $(BUILD)/host
 
 TESTBINS := $(H)/test_exfat $(H)/test_exfat_write $(H)/test_exchk $(H)/test_exfmt \
-	$(H)/test_fatchk $(H)/test_defrag $(H)/test_fat_format
+	$(H)/test_fatchk $(H)/test_defrag $(H)/test_fat_format $(H)/test_part
 
 .PHONY: all test check dos-check clean
 all: $(TESTBINS)
@@ -24,6 +24,7 @@ test: $(H)/test_fat_format $(H)/test_exfat
 
 # the host tests on images made by mkfs.fat/mkfs.exfat and the Linux drivers
 check: all test dos-check
+	bash tests/part_host.sh
 	bash tests/fatchk_host.sh
 	bash tests/defrag_host.sh
 	bash tests/exchk_host.sh
@@ -34,9 +35,10 @@ $(H)/test_exfat: tests/exfat_test.c $(EXFAT) $(HDR)
 $(H)/test_exfat_write: tests/exfat_write_test.c $(EXFAT) $(HDR)
 $(H)/test_exchk: tests/exchk_test.c src/exfat/exfat_check.c $(EXFAT) $(HDR)
 $(H)/test_exfmt: tests/exfmt_test.c src/exfat/exfat_format.c src/exfat/upcase.c $(HDR)
-$(H)/test_fatchk: tests/fatchk_test.c src/fat/fat_check.c src/exfat/codepage.c $(HDR)
+$(H)/test_fatchk: tests/fatchk_test.c src/fat/fat_check.c src/codepage.c $(HDR)
 $(H)/test_defrag: tests/defrag_test.c src/fat/fat_defrag.c $(HDR)
 $(H)/test_fat_format: tests/fat_format_test.c src/fat/fat_format.c $(HDR)
+$(H)/test_part: tests/part_test.c src/part/part.c $(HDR)
 $(TESTBINS):
 	mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(filter %.c,$^)

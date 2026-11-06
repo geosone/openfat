@@ -21,7 +21,7 @@ struct ofat_exchk {
     int (*write)(void *dev, ofat_u32 lba, const void OFAT_FAR *buf);  /* 0: report only */
     void *dev;
     ofat_u32 start;                       /* first sector of the volume */
-    const struct ofat_exfat_cp *cp;       /* for the names in messages */
+    const struct ofat_cp *cp;       /* for the names in messages */
     void (*msg)(void *ctx, int level, const char *text);
     int (*mark)(void *ctx, ofat_u32 bit); /* sets a bit, returns the old one */
     void (*clear)(void *ctx);           /* clears all bits of the window */

@@ -51,7 +51,7 @@ int main(int argc, char **argv)
     image = fopen(argv[1], fix ? "r+b" : "rb");
     if (!image) { perror(argv[1]); return 2; }
     memset(&c, 0, sizeof(c));
-    c.read = img_read; c.cp = &ofat_exfat_cp850; c.msg = msg; c.mark = mark; c.clear = clear;
+    c.read = img_read; c.cp = &ofat_cp850; c.msg = msg; c.mark = mark; c.clear = clear;
     c.start = argc > 2 ? strtoul(argv[2], NULL, 0) : 0;
     window = argc > 3 && strtoul(argv[3], NULL, 0) ? strtoul(argv[3], NULL, 0) : 1UL << 28;
     if (fix) c.write = img_write;

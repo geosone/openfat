@@ -104,7 +104,7 @@ void ofat_exfat_rootdir(const struct ofat_exfat *v, struct ofat_exfat_file *f)
     f->first = v->root; f->root = 1;
 }
 
-int ofat_exfat_mount(struct ofat_exfat *v, ofat_exfat_read_fn read, void *dev, ofat_u32 start, const struct ofat_exfat_cp *cp, ofat_u8 *buf)
+int ofat_exfat_mount(struct ofat_exfat *v, ofat_exfat_read_fn read, void *dev, ofat_u32 start, const struct ofat_cp *cp, ofat_u8 *buf)
 {
     const ofat_u8 *b;
     struct ofat_exfat_file root;
@@ -274,44 +274,6 @@ int ofat_exfat_free(struct ofat_exfat *v, ofat_u32 *free_clusters)
     return OFAT_EXFAT_OK;
 }
 
-/* A Unicode character in the code page, upper case; 0 when it has none. */
-static ofat_u8 oem_upper(const struct ofat_exfat_cp *cp, ofat_u16 u)
-{
-    unsigned i;
-    if (u < 0x80) return (ofat_u8)(u >= 'a' && u <= 'z' ? u - 32 : u);
-    for (i = 0; i < 128; ++i) if (cp->uni[i] == u) return cp->upper[i];
-    return 0;
-}
-
-static int part83(const struct ofat_exfat_cp *cp, const ofat_u16 *name, unsigned len, char *out, unsigned max)
-{
-    unsigned i, n = 0;
-    int lossy = 0;
-    ofat_u8 c;
-    for (i = 0; i < len; ++i) {
-        c = oem_upper(cp, name[i]);
-        if (c == ' ' || c == '.') { lossy = 1; continue; }
-        if (!c || c < 0x20 || strchr("\"*+,/:;<=>?[\\]|", c)) { c = '_'; lossy = 1; }
-        if (n == max) { lossy = 1; break; }
-        out[n++] = (char)c;
-    }
-    return lossy;
-}
-
-int ofat_exfat_basis(const struct ofat_exfat_cp *cp, const ofat_u16 *name, unsigned len, char fcb[11])
-{
-    unsigned dot = len, lead = 0, i;
-    int lossy;
-    memset(fcb, ' ', 11);
-    while (lead < len && name[lead] == '.') ++lead;
-    for (i = len; i > lead; --i) if (name[i-1] == '.') { dot = i - 1; break; }
-    lossy = lead != 0;
-    lossy |= part83(cp, name + lead, dot - lead, fcb, 8);
-    if (dot < len) lossy |= part83(cp, name + dot + 1, len - dot - 1, fcb + 8, 3);
-    if (fcb[0] == ' ') { fcb[0] = '_'; lossy = 1; }
-    return lossy;
-}
-
 static struct ofat_exfat_ent other;
 
 int ofat_exfat_short(struct ofat_exfat *v, struct ofat_exfat_file *d, const struct ofat_exfat_ent *ent, char fcb[11])
@@ -320,13 +282,13 @@ int ofat_exfat_short(struct ofat_exfat *v, struct ofat_exfat_file *d, const stru
     ofat_u32 pos = 0, n = 1;
     unsigned len, keep, t;
     int r;
-    if (!ofat_exfat_basis(v->cp, ent->name, ent->name_len, fcb)) return OFAT_EXFAT_OK;
+    if (!ofat_cp_basis(v->cp, ent->name, ent->name_len, fcb)) return OFAT_EXFAT_OK;
     /* the n-th entry with this basis in the directory gets "~n" */
     while (pos < ent->pos) {
         r = ofat_exfat_dir_next(v, d, &pos, &other);
         if (r == OFAT_EXFAT_END) break;
         if (r) return r;
-        if (other.pos < ent->pos && ofat_exfat_basis(v->cp, other.name, other.name_len, basis) &&
+        if (other.pos < ent->pos && ofat_cp_basis(v->cp, other.name, other.name_len, basis) &&
             !memcmp(basis, fcb, 11)) ++n;
     }
     t = sizeof(tail);
@@ -349,7 +311,7 @@ int ofat_exfat_lookup(struct ofat_exfat *v, struct ofat_exfat_file *d, const cha
     for (;;) {
         r = ofat_exfat_dir_next(v, d, &pos, ent);
         if (r) return r;
-        if (!ofat_exfat_basis(v->cp, ent->name, ent->name_len, name)) {
+        if (!ofat_cp_basis(v->cp, ent->name, ent->name_len, name)) {
             if (!memcmp(name, fcb, 11)) return OFAT_EXFAT_OK;
             continue;
         }

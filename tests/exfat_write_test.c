@@ -221,7 +221,7 @@ int main(int argc, char **argv)
     image = fopen(argv[1], "r+b");
     mirror = argv[2];
     assert(image);
-    CHECK(ofat_exfat_mount(&vol, img_read, NULL, 0, &ofat_exfat_cp850, sector_buf));
+    CHECK(ofat_exfat_mount(&vol, img_read, NULL, 0, &ofat_cp850, sector_buf));
     vol.write = img_write;
     CHECK(ofat_exfat_free(&vol, &free0));
 

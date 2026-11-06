@@ -104,7 +104,7 @@ static void basis(const char *ascii, const char *want, int lossy)
     char fcb[11];
     unsigned n;
     for (n = 0; ascii[n]; ++n) name[n] = (ofat_u8)ascii[n];
-    assert(ofat_exfat_basis(&ofat_exfat_cp850, name, n, fcb) == lossy);
+    assert(ofat_cp_basis(&ofat_cp850, name, n, fcb) == lossy);
     assert(!memcmp(fcb, want, 11));
 }
 
@@ -124,13 +124,13 @@ int main(int argc, char **argv)
     basis("a+b=c.txt", "A_B_C   TXT", 1);
     basis("NOEXT", "NOEXT      ", 0);
     basis("x.html", "X       HTM", 1);
-    assert(!ofat_exfat_basis(&ofat_exfat_cp850, umlaut, 9, fcb) && !memcmp(fcb, "\x8ERGER   TXT", 11));
-    assert(!ofat_exfat_basis(&ofat_exfat_cp437, umlaut, 9, fcb) && !memcmp(fcb, "\x8ERGER   TXT", 11));
-    assert(ofat_exfat_basis(&ofat_exfat_cp850, euro, 5, fcb) && !memcmp(fcb, "_       TXT", 11));
+    assert(!ofat_cp_basis(&ofat_cp850, umlaut, 9, fcb) && !memcmp(fcb, "\x8ERGER   TXT", 11));
+    assert(!ofat_cp_basis(&ofat_cp437, umlaut, 9, fcb) && !memcmp(fcb, "\x8ERGER   TXT", 11));
+    assert(ofat_cp_basis(&ofat_cp850, euro, 5, fcb) && !memcmp(fcb, "_       TXT", 11));
     if (argc < 2) { puts("exFAT name tests passed"); return 0; }
     image = fopen(argv[1], "rb");
     assert(image);
-    r = ofat_exfat_mount(&vol, img_read, NULL, start, &ofat_exfat_cp850, sector_buf);
+    r = ofat_exfat_mount(&vol, img_read, NULL, start, &ofat_cp850, sector_buf);
     if (r) { fprintf(stderr, "mount: %d\n", r); return 1; }
     if (argc > 3) { cat(argv[3]); return 0; }
     assert(!ofat_exfat_free(&vol, &free_clusters));

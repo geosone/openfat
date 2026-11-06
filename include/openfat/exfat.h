@@ -5,13 +5,8 @@
    the DOS driver and the host tests give their own.  Writing keeps an order
    that leaves at worst lost clusters behind: the allocation bitmap first,
    then the FAT, the data, and the directory entry last. */
-#include "openfat/types.h"
+#include "openfat/codepage.h"
 
-#ifdef __WATCOMC__
-#define OFAT_FAR __far
-#else
-#define OFAT_FAR
-#endif
 
 #ifndef OFAT_EXFAT_MAXSECT
 #define OFAT_EXFAT_MAXSECT 512
@@ -31,13 +26,6 @@
 #define OFAT_EXFAT_DIR    0x10
 #define OFAT_EXFAT_ARCH   0x20
 
-/* Unicode of the OEM characters 80h-FFh and their DOS upper case. */
-struct ofat_exfat_cp {
-    ofat_u16 cp;
-    ofat_u16 uni[128];
-    ofat_u8 upper[128];
-};
-extern const struct ofat_exfat_cp ofat_exfat_cp437, ofat_exfat_cp850;
 
 /* Reads one sector (of 1 << sshift bytes) at lba of the device. */
 typedef int (*ofat_exfat_read_fn)(void *dev, ofat_u32 lba, void OFAT_FAR *buf);
@@ -54,7 +42,7 @@ struct ofat_exfat {
     ofat_u8 sshift, cshift;       /* bytes per sector, sectors per cluster */
     ofat_u8 label_len;
     ofat_u16 label[11];
-    const struct ofat_exfat_cp *cp;
+    const struct ofat_cp *cp;
     ofat_u32 buf_lba;             /* sector in buf, or 0xFFFFFFFF */
     ofat_u8 *buf;                 /* OFAT_EXFAT_MAXSECT bytes; volumes may share
                                    one when they set buf_lba to 0xFFFFFFFF
@@ -94,7 +82,7 @@ struct ofat_exfat_ent {
 };
 
 int ofat_exfat_probe(const ofat_u8 OFAT_FAR *boot);
-int ofat_exfat_mount(struct ofat_exfat *, ofat_exfat_read_fn, void *dev, ofat_u32 start, const struct ofat_exfat_cp *, ofat_u8 *buf);
+int ofat_exfat_mount(struct ofat_exfat *, ofat_exfat_read_fn, void *dev, ofat_u32 start, const struct ofat_cp *, ofat_u8 *buf);
 void ofat_exfat_rootdir(const struct ofat_exfat *, struct ofat_exfat_file *);
 int ofat_exfat_dir_next(struct ofat_exfat *, struct ofat_exfat_file *dir, ofat_u32 *pos, struct ofat_exfat_ent *);
 int ofat_exfat_read(struct ofat_exfat *, struct ofat_exfat_file *, ofat_u32 off, void OFAT_FAR *buf, ofat_u16 len, ofat_u16 *done);
@@ -139,7 +127,7 @@ int ofat_exfat_clean(struct ofat_exfat *);
 
 /* 8.3 names: fcb is the 11-character FCB form ("LETTER~1TXT").  Returns 1
    when the long name had to be changed (it then needs a "~n"). */
-int ofat_exfat_basis(const struct ofat_exfat_cp *, const ofat_u16 *name, unsigned len, char fcb[11]);
+int ofat_cp_basis(const struct ofat_cp *, const ofat_u16 *name, unsigned len, char fcb[11]);
 int ofat_exfat_short(struct ofat_exfat *, struct ofat_exfat_file *dir, const struct ofat_exfat_ent *, char fcb[11]);
 int ofat_exfat_lookup(struct ofat_exfat *, struct ofat_exfat_file *dir, const char fcb[11], struct ofat_exfat_ent *);
 #endif

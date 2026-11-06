@@ -27,4 +27,11 @@ typedef uint64_t ofat_u64; /* also under -std=c90: stdint.h declares it */
 typedef int64_t  ofat_s64;
 #endif
 
+/* far data pointers of the 16-bit DOS memory models */
+#ifdef __WATCOMC__
+#define OFAT_FAR __far
+#else
+#define OFAT_FAR
+#endif
+
 #endif
