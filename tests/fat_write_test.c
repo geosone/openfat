@@ -292,9 +292,9 @@ int main(int argc, char **argv)
     op_create("GROSS.txt", OFAT_FAT_ARCH);
     locate("GROSS.txt");
     assert(ent.lfn == ent.pos && ent.ntcase == 0x10);
-    op_create("MiXed.TXT", OFAT_FAT_ARCH);      /* mixed case: a long name */
+    op_create("MiXed.TXT", OFAT_FAT_ARCH);      /* mixed case: a long name, the upper case short name */
     locate("MiXed.TXT");
-    assert(ent.lfn != ent.pos && !memcmp(ent.fcb, "MIXED~1 TXT", 11));
+    assert(ent.lfn != ent.pos && !memcmp(ent.fcb, "MIXED   TXT", 11));
     /* the same name in other case exists already */
     parent("neu.txt", &pdir);
     assert(ofat_fat_create(&vol, &pdir, last, last_len, 0, 0, 0, &free0) == OFAT_FAT_EEXIST);
@@ -310,7 +310,7 @@ int main(int argc, char **argv)
         op_write("b.bin", i * 5000UL, 5000, 4);
     }
     /* a directory that grows beyond its first cluster, long names that
-       share their basis (~1 ... ~150) */
+       share their basis (~1 ... ~4, then mangled as in NSS) */
     op_create("Neuer Ordner mit langem Namen", OFAT_FAT_DIR);
     for (i = 0; i < 150; ++i) {
         sprintf(name, "Neuer Ordner mit langem Namen/Datei mit langem Namen %03u.txt", i);

@@ -703,49 +703,84 @@ static int bad_char(ofat_u16 c)
         c == '>' || c == '?' || c == '\\' || c == '|';
 }
 
-/* the short name of a new entry: the name itself (ntcase for lower case
-   ones) or a basis with "~n" (1 is returned: it needs a long name) */
+/* whether no entry of directory d has the short name fcb: 1, 0, or <0 */
+static int short_free(struct ofat_fat *v, struct ofat_fat_file *d, const char fcb[11])
+{
+    ofat_u32 pos = 0;
+    int r;
+    while (!(r = ofat_fat_dir_next(v, d, &pos, &tmp)))
+        if (!memcmp(tmp.fcb, fcb, 11)) return 0;
+    return r == OFAT_FAT_END ? 1 : r;
+}
+
+/* the characters of a mangled name (Novell NSS, DOSNS_generateUniqueName) */
+static const char mangle_chars[] = "123456789ABCDEFGHJKLMNPQRSTUVWXY";
+
+/* the short name of a new entry, after the rules of NSS's DOS name space:
+   the name itself (ntcase for lower case ones; no long name), its upper
+   case form when only the case differs (a long name keeps the case), else
+   a mangled name: the first 6 characters with ~1 ... ~4, then the first 2,
+   4 characters from the long name's hash and ~1 (NSS takes random ones;
+   a hash keeps images reproducible). 1 is returned when a long name is
+   needed. */
 static int make_short(struct ofat_fat *v, struct ofat_fat_file *d, const ofat_u16 *name, unsigned len,
                       char fcb[11], ofat_u8 *ntcase)
 {
-    unsigned i, dot = len, k, keep, tl;
-    int lower[2] = { 0, 0 }, upper[2] = { 0, 0 }, part = 0;
-    char tail[8];
-    ofat_u32 n, m;
+    unsigned i, dot = len, k, n;
+    int lower[2] = { 0, 0 }, upper[2] = { 0, 0 }, other = 0, part = 0, r;
+    ofat_u32 hash = 2166136261UL;
+    char want[11];
     *ntcase = 0;
     if (!ofat_cp_basis(v->cp, name, len, fcb)) {
         for (i = len; i; --i) if (name[i - 1] == '.') { dot = i - 1; break; }
         for (i = 0; i < len; ++i) {
             if (i == dot) { part = 1; continue; }
-            if (name[i] >= 0x80) { lower[0] = upper[0] = 1; break; }
+            if (name[i] >= 0x80) other = 1;
             if (name[i] >= 'a' && name[i] <= 'z') lower[part] = 1;
             if (name[i] >= 'A' && name[i] <= 'Z') upper[part] = 1;
         }
-        if (!(lower[0] && upper[0]) && !(lower[1] && upper[1])) {
+        if (!other && !(lower[0] && upper[0]) && !(lower[1] && upper[1])) {
             if (lower[0]) *ntcase |= 0x08;
             if (lower[1]) *ntcase |= 0x10;
             return 0;
         }
+        /* only the case differs: the upper case form, when it is free */
+        if ((r = short_free(v, d, fcb)) != 0) return r < 0 ? r : 1;
     }
-    /* "~n": the first n that no entry of the directory has */
-    for (n = 1; n < 1000000UL; ++n) {
-        char want[11];
-        ofat_u32 pos = 0;
-        int r;
+    for (k = 8; k && fcb[k - 1] == ' '; --k) ;
+    /* NAME~1 ... NAME~4 */
+    for (n = 1; n <= 4; ++n) {
+        unsigned keep = k > 6 ? 6 : k;
         memcpy(want, fcb, 11);
-        tl = sizeof(tail);
-        m = n;
-        do { tail[--tl] = (char)('0' + m % 10); m /= 10; } while (m);
-        tail[--tl] = '~';
-        for (k = 8; k && want[k - 1] == ' '; --k) ;
-        keep = 8 - (sizeof(tail) - tl);
-        if (k > keep) k = keep;
-        memcpy(want + k, tail + tl, sizeof(tail) - tl);
-        for (i = k + (unsigned)(sizeof(tail) - tl); i < 8; ++i) want[i] = ' ';
-        while (!(r = ofat_fat_dir_next(v, d, &pos, &tmp)))
-            if (!memcmp(tmp.fcb, want, 11)) break;
-        if (r == OFAT_FAT_END) { memcpy(fcb, want, 11); return 1; }
-        if (r) return r;
+        want[keep] = '~';
+        want[keep + 1] = (char)('0' + n);
+        for (i = keep + 2; i < 8; ++i) want[i] = ' ';
+        if ((r = short_free(v, d, want)) != 0) {
+            if (r < 0) return r;
+            memcpy(fcb, want, 11);
+            return 1;
+        }
+    }
+    /* NAxxxx~1: xxxx from the hash, ~2 ... ~Y when they run out */
+    for (i = 0; i < len; ++i) hash = (hash ^ name[i]) * 16777619UL;
+    for (n = 0; n < 32 * 1024U; ++n) {
+        unsigned keep = k > 2 ? 2 : k;
+        ofat_u32 h = hash;
+        memcpy(want, fcb, 11);
+        for (i = keep; i < 8; ++i) want[i] = ' ';
+        for (i = 0; i < 4; ++i) {
+            want[keep + i] = mangle_chars[h & 31];
+            h >>= 5;
+        }
+        want[keep + 4] = '~';
+        want[keep + 5] = mangle_chars[n >> 10];
+        if ((r = short_free(v, d, want)) != 0) {
+            if (r < 0) return r;
+            memcpy(fcb, want, 11);
+            return 1;
+        }
+        hash = hash * 1103515245UL + 12345UL;   /* the next try */
+        hash &= 0xffffffffUL;
     }
     return OFAT_FAT_EFULL;
 }

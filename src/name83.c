@@ -22,8 +22,10 @@ static int part83(const struct ofat_cp *cp, const ofat_u16 *name, unsigned len, 
         c = ofat_cp_upper(cp, name[i]);
         /* an accented Latin letter the code page lacks: its base letter */
         if (!c && (c = ofat_latin_base(ofat_unicode_upper(name[i]))) != 0) lossy = 1;
-        if (c == ' ' || c == '.') { lossy = 1; continue; }
-        if (!c || c < 0x20 || strchr("\"*+,/:;<=>?[\\]|", c)) { c = '_'; lossy = 1; }
+        /* as NSS (and NT): spaces, dots and characters the code page
+           lacks are left out, other invalid ones become "_" */
+        if (!c || c == ' ' || c == '.') { lossy = 1; continue; }
+        if (c < 0x20 || strchr("\"*+,/:;<=>?[\\]|", c)) { c = '_'; lossy = 1; }
         if (n == max) { lossy = 1; break; }
         out[n++] = (char)c;
     }
