@@ -18,6 +18,7 @@ GonWare.
 | FAT format | `src/fat/fat_format.c` | FAT12/16/32 layout, boot sector, FSInfo |
 | FAT check | `src/fat/fat_check.c` | checking and repairing FAT12/16/32 after the rules of fsck.fat |
 | FAT defrag | `src/fat/fat_defrag.c` | defragmenting FAT12/16/32, in a write order that survives power loss |
+| Image tool | `tools/ofimg.c` | host tool: formats an exFAT volume in a disk image (a partition or a superfloppy), makes directories and puts files, without mounting it (mtools knows no exFAT): `ofimg IMAGE START format SECTORS [LABEL] mkdir PATH put FILE PATH …` |
 
 Sector numbers (`ofat_lba`) and file sizes (`ofat_fsize`) have 64 bits in
 32/64-bit builds: exFAT volumes past 2 TiB, files of 4 GiB and more, FAT and
@@ -35,7 +36,7 @@ every FAT variant.
 ## Building and testing
 
 ```sh
-make            # host test programs in build/host
+make            # host test programs and ofimg in build/host
 make test       # quick tests
 make dos-check  # every source as a 16-bit DOS object (OpenWatcom, WATCOM=/opt/watcom)
 make check      # everything, including the image tests

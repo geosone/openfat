@@ -17,7 +17,8 @@ SRC      := $(wildcard src/*.c src/*/*.c)
 H        := $(BUILD)/host
 
 TESTBINS := $(H)/test_exfat $(H)/test_exfat_write $(H)/test_exchk $(H)/test_exfmt \
-	$(H)/test_fatchk $(H)/test_defrag $(H)/test_fat_format $(H)/test_part $(H)/test_fat_write $(H)/test_exfat_big
+	$(H)/test_fatchk $(H)/test_defrag $(H)/test_fat_format $(H)/test_part $(H)/test_fat_write $(H)/test_exfat_big \
+	$(H)/ofimg
 
 .PHONY: all test check dos-check clean
 all: $(TESTBINS)
@@ -37,6 +38,7 @@ check: all test dos-check
 	bash tests/exfmt_host.sh
 	bash tests/exfat_write.sh
 	bash tests/exfat_big.sh
+	bash tests/ofimg_host.sh
 
 $(H)/test_exfat: tests/exfat_test.c $(EXFAT) $(HDR)
 $(H)/test_exfat_write: tests/exfat_write_test.c $(EXFAT) $(HDR)
@@ -48,6 +50,8 @@ $(H)/test_defrag: tests/defrag_test.c src/fat/fat_defrag.c $(HDR)
 $(H)/test_fat_format: tests/fat_format_test.c src/fat/fat_format.c $(HDR)
 $(H)/test_fat_write: tests/fat_write_test.c $(FATSRC) $(HDR)
 $(H)/test_part: tests/part_test.c src/part/part.c $(HDR)
+# the host tool for images (tools/ofimg.c)
+$(H)/ofimg: tools/ofimg.c src/exfat/exfat_format.c $(EXFAT) $(HDR)
 $(H)/test_fat_write: CPPFLAGS += -DOFAT_FAT_MAXSECT=4096
 $(H)/test_exfat_big: CPPFLAGS += -DOFAT_EXFAT_MAXSECT=4096
 # a host program with 64-bit printf (the library is checked as C90 elsewhere)
